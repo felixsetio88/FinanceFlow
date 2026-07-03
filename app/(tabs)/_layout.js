@@ -1,112 +1,111 @@
 import { Tabs, useRouter } from 'expo-router';
-import { View, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
+import { Platform, View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, Breakpoints } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function TabLayout() {
     const router = useRouter();
-    const { width } = useWindowDimensions();
-    const isTablet = width >= Breakpoints.tablet;
+    const { colors } = useTheme();
 
     return (
-        <View style={{ flex: 1 }}>
-            <Tabs
-                screenOptions={{
-                    headerShown: false,
-                    tabBarActiveTintColor: Colors.dark.tabActive,
-                    tabBarInactiveTintColor: Colors.dark.tabInactive,
-                    tabBarStyle: {
-                        backgroundColor: Colors.dark.tabBar,
-                        borderTopColor: Colors.dark.tabBarBorder,
-                        borderTopWidth: 1,
-                        height: 65,
-                        paddingBottom: 8,
-                        paddingBottom: 8,
-                        paddingTop: 8,
-                    },
-                    tabBarLabelStyle: {
-                        fontSize: 10,
-                        fontWeight: '600',
-                    },
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <Tabs
+            screenOptions={{
+                headerShown: false,
+                tabBarActiveTintColor: colors.tabActive,
+                tabBarInactiveTintColor: colors.tabInactive,
+                tabBarStyle: {
+                    backgroundColor: colors.tabBar,
+                    borderTopWidth: 0,
+                    height: 70,
+                    paddingBottom: 8,
+                    paddingTop: 8,
+                    marginHorizontal: 14,
+                    marginBottom: 12,
+                    borderRadius: 24,
+                    position: 'absolute',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowOpacity: 0.10,
+                    shadowRadius: 18,
+                    elevation: Platform.OS === 'android' ? 0 : 10,
+                },
+                tabBarLabelStyle: {
+                    fontSize: 10,
+                    fontWeight: '600',
+                    fontFamily: 'Poppins_600SemiBold',
+                },
+            }}
+        >
+            <Tabs.Screen
+                name="index"
+                options={{
+                    title: 'Home',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
                 }}
-            >
-                <Tabs.Screen
-                    name="index"
-                    options={{
-                        title: 'Home',
-                        tabBarIcon: ({ color, size }) => (
-                            <Ionicons name="home" size={size} color={color} />
-                        ),
-                    }}
-                />
-                <Tabs.Screen
-                    name="transactions"
-                    options={{
-                        title: 'History',
-                        tabBarIcon: ({ color, size }) => (
-                            <Ionicons name="swap-horizontal" size={size} color={color} />
-                        ),
-                    }}
-                />
-                <Tabs.Screen
-                    name="charts"
-                    options={{
-                        title: 'Charts',
-                        tabBarIcon: ({ color, size }) => (
-                            <Ionicons name="pie-chart" size={size} color={color} />
-                        ),
-                    }}
-                />
-                <Tabs.Screen
-                    name="budget"
-                    options={{
-                        title: 'Budget',
-                        tabBarIcon: ({ color, size }) => (
-                            <Ionicons name="wallet" size={size} color={color} />
-                        ),
-                    }}
-                />
-                <Tabs.Screen
-                    name="assets"
-                    options={{
-                        title: 'Assets',
-                        tabBarIcon: ({ color, size }) => (
-                            <Ionicons name="business" size={size} color={color} />
-                        ),
-                    }}
-                />
-            </Tabs>
-
-            {/* Floating Action Button */}
-            <TouchableOpacity
-                style={styles.fab}
-                onPress={() => router.push('/add-transaction')}
-                activeOpacity={0.8}
-            >
-                <Ionicons name="add" size={28} color="#fff" />
-            </TouchableOpacity>
+            />
+            <Tabs.Screen
+                name="transactions"
+                options={{
+                    title: 'History',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="time-outline" size={size} color={color} />,
+                }}
+            />
+            {/* Center FAB rendered as the middle tab button */}
+            <Tabs.Screen
+                name="center-placeholder"
+                options={{
+                    title: '',
+                    tabBarButton: () => (
+                        <TouchableOpacity
+                            style={styles.centerFab}
+                            onPress={() => router.push('/add-transaction')}
+                            activeOpacity={0.8}
+                        >
+                            <View style={[styles.centerFabInner, { backgroundColor: colors.primary }]}>
+                                <Ionicons name="add" size={28} color="#fff" />
+                            </View>
+                        </TouchableOpacity>
+                    ),
+                }}
+            />
+            <Tabs.Screen
+                name="charts"
+                options={{
+                    title: 'Charts',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart-outline" size={size} color={color} />,
+                }}
+            />
+            <Tabs.Screen
+                name="savings"
+                options={{
+                    title: 'Savings',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="trending-up-outline" size={size} color={color} />,
+                }}
+            />
+            {/* Accessible via Settings only */}
+            <Tabs.Screen name="budget" options={{ href: null }} />
+        </Tabs>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    fab: {
-        position: 'absolute',
-        bottom: 80,
-        alignSelf: 'center',
-        left: '50%',
-        marginLeft: -28,
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: Colors.dark.emerald,
+    centerFab: {
+        flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        elevation: 8,
-        shadowColor: Colors.dark.emerald,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
+    },
+    centerFabInner: {
+        width: 54,
+        height: 54,
+        borderRadius: 27,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: '#ff6600',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.45,
         shadowRadius: 12,
-        zIndex: 100,
+        elevation: Platform.OS === 'android' ? 0 : 10,
     },
 });

@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "FinanceFlow",
+    "slug": "financeflow",
+    "version": "2.0.0",
+    "orientation": "default",
+    "icon": "./assets/images/icon.png",
+    "scheme": "financeflow",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0e1a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "deploymentTarget": "15.5",
+      "bundleIdentifier": "com.financeflow.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0a0e1a"
+      },
+      "package": "com.financeflow.app",
+      "backgroundColor": "#00000000"
+    },
+    "androidNavigationBar": {
+      "backgroundColor": "#00000000"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#ff6600",
+          "sounds": []
+        }
+      ],
+      [
+        "llama.rn",
+        {
+          "enableEntitlements": true,
+          "entitlementsProfile": "production",
+          "forceCxx20": true,
+          "enableOpenCL": true
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "ed123177-20e7-4f60-ac44-b29182aa5f55"
+      }
+    }
+  }
+}

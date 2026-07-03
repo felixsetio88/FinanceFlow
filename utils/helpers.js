@@ -19,6 +19,8 @@ export function formatDateTime(date) {
 export function getDateRange(period, referenceDate = new Date()) {
     const ref = new Date(referenceDate);
     switch (period) {
+        case 'all':
+            return { start: new Date(0), end: new Date(8640000000000000) };
         case 'daily':
             return { start: startOfDay(ref), end: endOfDay(ref) };
         case 'weekly':
@@ -33,6 +35,8 @@ export function getDateRange(period, referenceDate = new Date()) {
 export function getPreviousDateRange(period, referenceDate = new Date()) {
     const ref = new Date(referenceDate);
     switch (period) {
+        case 'all':
+            return getDateRange('all', ref);
         case 'daily':
             return getDateRange('daily', subDays(ref, 1));
         case 'weekly':
@@ -45,6 +49,9 @@ export function getPreviousDateRange(period, referenceDate = new Date()) {
 }
 
 export function filterTransactionsByPeriod(transactions, period, referenceDate) {
+    if (period === 'all') {
+        return Array.isArray(transactions) ? [...transactions] : [];
+    }
     const { start, end } = getDateRange(period, referenceDate);
     return transactions.filter(t => {
         const d = new Date(t.date);
@@ -74,10 +81,11 @@ export function groupByDate(transactions) {
     return groups;
 }
 
-export function calculateBudgetUsage(transactions, budget) {
-    const { start, end } = getDateRange(budget.period);
+export function calculateBudgetUsage(transactions, budget, referenceDate = new Date()) {
+    const { start, end } = getDateRange(budget.period, referenceDate);
     const periodTransactions = transactions.filter(t => {
         if (t.type !== 'spending') return false;
+        if (budget.category && budget.category !== 'all' && t.category !== budget.category) return false;
         const d = new Date(t.date);
         return isWithinInterval(d, { start, end });
     });
@@ -88,6 +96,9 @@ export function calculateBudgetUsage(transactions, budget) {
     return { spent, limit, remaining, percentage, isOver: spent > limit };
 }
 
+let _idSeq = 0;
+
 export function generateId() {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+    _idSeq = (_idSeq + 1) % 1679616;
+    return Date.now().toString(36) + _idSeq.toString(36).padStart(4, '0') + Math.random().toString(36).slice(2, 9);
 }

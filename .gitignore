@@ -28,3 +28,14 @@ dist-ssr
 
 expo-env.d.ts
 # @end expo-cli
+# Ignored local files
+*.zip
+*.png
+*.jpg
+*.jpeg
+financeflow_export_*.json
+fix_*.js
+verify_assets.js
+rename_*.js
+replace_*.js
+revert_*.js

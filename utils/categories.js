@@ -1,43 +1,43 @@
 // Category definitions for income and spending
 export const spendingCategories = [
-    { id: 'food', name: 'Food', icon: '🍔', color: '#ef4444' },
-    { id: 'transport', name: 'Transport', icon: '🚗', color: '#f97316' },
-    { id: 'daily_needs', name: 'Daily Needs', icon: '🛒', color: '#eab308' },
-    { id: 'health', name: 'Health', icon: '🏥', color: '#22c55e' },
-    { id: 'pets', name: 'Pets', icon: '🐾', color: '#a3e635' },
-    { id: 'shopping', name: 'Shopping', icon: '🛍️', color: '#ec4899' },
-    { id: 'entertainment', name: 'Entertainment', icon: '🎬', color: '#8b5cf6' },
-    { id: 'education', name: 'Education', icon: '📚', color: '#06b6d4' },
-    { id: 'bills', name: 'Bills', icon: '📄', color: '#64748b' },
-    { id: 'rent', name: 'Rent', icon: '🏠', color: '#0ea5e9' },
-    { id: 'beauty', name: 'Beauty', icon: '💄', color: '#f43f5e' },
-    { id: 'gift', name: 'Gift', icon: '🎁', color: '#d946ef' },
-    { id: 'other_spending', name: 'Other', icon: '📋', color: '#94a3b8' },
+    { id: 'food', name: 'Food', icon: 'fast-food-outline', color: '#ef4444' },
+    { id: 'transport', name: 'Car', icon: 'car-outline', color: '#f97316' },
+    { id: 'daily_needs', name: 'Daily Needs', icon: 'cart-outline', color: '#eab308' },
+    { id: 'health', name: 'Health', icon: 'medkit-outline', color: '#22c55e' },
+    { id: 'pets', name: 'Pets', icon: 'paw-outline', color: '#a3e635' },
+    { id: 'shopping', name: 'Shopping', icon: 'bag-handle-outline', color: '#ec4899' },
+    { id: 'entertainment', name: 'Entertainment', icon: 'ticket-outline', color: '#8b5cf6' },
+    { id: 'education', name: 'Education', icon: 'library-outline', color: '#06b6d4' },
+    { id: 'bills', name: 'Bills', icon: 'document-text-outline', color: '#64748b' },
+    { id: 'rent', name: 'Rent', icon: 'home-outline', color: '#0ea5e9' },
+    { id: 'beauty', name: 'Beauty', icon: 'color-wand-outline', color: '#f43f5e' },
+    { id: 'gift', name: 'Gift', icon: 'gift-outline', color: '#d946ef' },
+    { id: 'other_spending', name: 'Other', icon: 'grid-outline', color: '#94a3b8' },
 ];
 
 export const incomeCategories = [
-    { id: 'salary', name: 'Salary', icon: '💰', color: '#10b981' },
-    { id: 'freelance', name: 'Freelance', icon: '💻', color: '#3b82f6' },
-    { id: 'investment', name: 'Investment', icon: '📈', color: '#8b5cf6' },
-    { id: 'gift_income', name: 'Gift', icon: '🎁', color: '#f59e0b' },
-    { id: 'refund', name: 'Refund', icon: '💸', color: '#06b6d4' },
-    { id: 'other_income', name: 'Other', icon: '📋', color: '#94a3b8' },
+    { id: 'salary', name: 'Salary', icon: 'cash-outline', color: '#10b981' },
+    { id: 'freelance', name: 'Freelance', icon: 'laptop-outline', color: '#3b82f6' },
+    { id: 'investment', name: 'Investment', icon: 'trending-up-outline', color: '#8b5cf6' },
+    { id: 'gift_income', name: 'Gift', icon: 'gift-outline', color: '#f59e0b' },
+    { id: 'refund', name: 'Refund', icon: 'refresh-outline', color: '#06b6d4' },
+    { id: 'other_income', name: 'Other', icon: 'grid-outline', color: '#94a3b8' },
 ];
 
 export const accountTypes = [
-    { id: 'bank', name: 'Bank Account', icon: '🏦' },
-    { id: 'cash', name: 'Cash', icon: '💵' },
-    { id: 'paypal', name: 'PayPal', icon: '🅿️' },
-    { id: 'ewallet', name: 'E-Wallet', icon: '📱' },
-    { id: 'crypto', name: 'Crypto', icon: '₿' },
-    { id: 'other_account', name: 'Other', icon: '📋' },
+    { id: 'bank', name: 'Bank Account', icon: 'business' },
+    { id: 'cash', name: 'Cash', icon: 'wallet' },
+    { id: 'paypal', name: 'PayPal', icon: 'logo-paypal' },
+    { id: 'ewallet', name: 'E-Wallet', icon: 'phone-portrait' },
+    { id: 'crypto', name: 'Crypto', icon: 'logo-bitcoin' },
+    { id: 'other_account', name: 'Other', icon: 'grid' },
 ];
 
 export function getCategoryById(id) {
     return (
         spendingCategories.find(c => c.id === id) ||
         incomeCategories.find(c => c.id === id) ||
-        { id: 'unknown', name: 'Unknown', icon: '❓', color: '#94a3b8' }
+        { id: 'unknown', name: 'Unknown', icon: 'help-circle-outline', color: '#94a3b8' }
     );
 }
 
@@ -48,7 +48,7 @@ export function getAccountTypeById(id) {
 // Auto-categorization keywords for AI and PDF parsing
 const categoryKeywords = {
     food: ['food', 'restaurant', 'cafe', 'coffee', 'pizza', 'burger', 'sushi', 'noodle', 'rice', 'chicken', 'bread', 'milk', 'snack', 'drink', 'tea', 'juice', 'mcdonald', 'kfc', 'starbucks', 'grab food', 'gofood', 'bakery', 'makan', 'nasi', 'ayam', 'mie', 'martabak'],
-    transport: ['uber', 'grab', 'gojek', 'taxi', 'bus', 'train', 'fuel', 'gas', 'petrol', 'parking', 'toll', 'mrt', 'lrt', 'bensin', 'parkir'],
+    transport: ['uber', 'grab', 'gojek', 'taxi', 'bus', 'train', 'fuel', 'gas', 'petrol', 'parking', 'toll', 'mrt', 'lrt', 'bensin', 'parkir', 'maintenance', 'service', 'refuel', 'ev charge', 'charging', 'bengkel', 'servis'],
     daily_needs: ['grocery', 'supermarket', 'indomaret', 'alfamart', 'soap', 'shampoo', 'tissue', 'detergent', 'toothpaste'],
     health: ['pharmacy', 'hospital', 'doctor', 'medicine', 'clinic', 'apotek', 'obat', 'vitamin'],
     shopping: ['mall', 'store', 'amazon', 'shopee', 'tokopedia', 'lazada', 'uniqlo', 'zara', 'h&m', 'clothing', 'shoes'],
