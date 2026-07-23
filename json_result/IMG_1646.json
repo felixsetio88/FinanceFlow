@@ -1,0 +1,23 @@
+{
+  "storeName": "NIKO NEKO 2.0/ CHINATOWN",
+  "date": "2026-07-16",
+  "items": [
+    {
+      "name": "Wayan Pergia Kutla Lumpur",
+      "quantity": 1,
+      "price": 80000,
+      "category": "other_spending"
+    },
+    {
+      "name": "6.0%",
+      "quantity": 1,
+      "price": 84.91,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 84.91,
+  "tax": 5.1,
+  "serviceCharge": 0,
+  "total": 90,
+  "paymentMethod": "cash"
+}

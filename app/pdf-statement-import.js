@@ -13,10 +13,11 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
-    Platform, View, Text, ScrollView, TouchableOpacity,
+    Platform, View, Text,
     Alert, ActivityIndicator, StyleSheet, useWindowDimensions,
-    TextInput, Modal, KeyboardAvoidingView, Switch,
+    TextInput, Modal, KeyboardAvoidingView, Switch, Pressable,
 } from 'react-native';
+import { ScrollView, TouchableOpacity } from 'react-native-gesture-handler';
 import Svg, { Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -95,6 +96,7 @@ export default function PdfStatementImport() {
     const [statusMsg, setStatusMsg] = useState('');
     const [transactions, setTransactions] = useState([]);
     const [saving, setSaving] = useState(false);
+    const [selectedAssetId, setSelectedAssetId] = useState(null);
 
     // ── Column mapping state ────────────────────────────────────────────────────
     const [mappingOpen, setMappingOpen] = useState(false);
@@ -228,24 +230,6 @@ export default function PdfStatementImport() {
         } catch (err) {
             Alert.alert('Model Check Failed', err?.message || 'Could not verify AI model.');
             return;
-        }
-
-        let selectedAssetId = null;
-        if (assets && assets.length > 0) {
-            await new Promise(resolve => {
-                Alert.alert(
-                    'Link to Account',
-                    'Which account does this statement belong to?',
-                    [
-                        { text: 'No Account', onPress: () => { selectedAssetId = null; resolve(); } },
-                        ...assets.map(a => ({
-                            text: a.name,
-                            onPress: () => { selectedAssetId = a.id; resolve(); },
-                        })),
-                    ],
-                    { cancelable: false }
-                );
-            });
         }
 
         cancelledRef.current = false;
@@ -470,6 +454,73 @@ export default function PdfStatementImport() {
                             </TouchableOpacity>
                         )}
                     </TouchableOpacity>
+
+                    {/* Account Selector */}
+                    {pdfFile && !isScanning && (
+                        <View style={{ marginTop: Spacing.md, marginBottom: Spacing.md }}>
+                            <Text style={[styles.label, { color: colors.textSecondary }]}>
+                                Link to Account{' '}
+                                <Text style={{ color: colors.textMuted, fontFamily: 'Poppins_400Regular' }}>
+                                    (optional)
+                                </Text>
+                            </Text>
+                            {!assets || assets.length === 0 ? (
+                                <Text style={[styles.noAssetsHint, { color: colors.textMuted }]}>
+                                    No accounts found. Add one in Settings → Assets.
+                                </Text>
+                            ) : (
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                    <View style={styles.paymentRow}>
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.paymentChip,
+                                                { backgroundColor: colors.inputBg, borderColor: colors.border },
+                                                selectedAssetId === null && [
+                                                    styles.paymentChipActive,
+                                                    { backgroundColor: isDark ? 'rgba(255,102,0,0.2)' : 'rgba(255,102,0,0.1)', borderColor: colors.primary },
+                                                ],
+                                            ]}
+                                            onPress={() => requestAnimationFrame(() => setSelectedAssetId(null))}
+                                            activeOpacity={0.8}
+                                        >
+                                            <Ionicons name="close-circle-outline" size={14} color={selectedAssetId === null ? colors.primary : colors.textMuted} />
+                                            <Text style={[
+                                                styles.paymentChipText,
+                                                { color: colors.textSecondary },
+                                                selectedAssetId === null && [styles.paymentChipTextActive, { color: colors.primary }],
+                                            ]}>
+                                                None
+                                            </Text>
+                                        </TouchableOpacity>
+                                        {assets.map((a) => (
+                                            <TouchableOpacity
+                                                key={a.id}
+                                                style={[
+                                                    styles.paymentChip,
+                                                    { backgroundColor: colors.inputBg, borderColor: colors.border },
+                                                    selectedAssetId === a.id && [
+                                                        styles.paymentChipActive,
+                                                        { backgroundColor: isDark ? 'rgba(255,102,0,0.2)' : 'rgba(255,102,0,0.1)', borderColor: colors.primary },
+                                                    ],
+                                                ]}
+                                                onPress={() => setSelectedAssetId(a.id)}
+                                                activeOpacity={0.8}
+                                            >
+                                                <Ionicons name="card-outline" size={14} color={selectedAssetId === a.id ? colors.primary : colors.textMuted} />
+                                                <Text style={[
+                                                    styles.paymentChipText,
+                                                    { color: colors.textSecondary },
+                                                    selectedAssetId === a.id && [styles.paymentChipTextActive, { color: colors.primary }],
+                                                ]}>
+                                                    {a.name}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </ScrollView>
+                            )}
+                        </View>
+                    )}
 
                     {/* Scan / Re-scan button */}
                     {pdfFile && !isScanning && (
@@ -812,7 +863,7 @@ export default function PdfStatementImport() {
                     style={styles.modalOverlay}
                     behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 >
-                    <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={closeEditModal} />
+                    <Pressable style={styles.modalBackdrop} onPress={closeEditModal} />
                     <View style={[styles.modalSheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
                         {/* Modal handle */}
                         <View style={[styles.modalHandle, { backgroundColor: colors.border }]} />
@@ -1120,4 +1171,14 @@ const styles = StyleSheet.create({
         elevation: Platform.OS === 'android' ? 0 : 3,
     },
     modalSaveText: { color: '#fff', fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm },
+    paymentRow: { flexDirection: 'row', gap: Spacing.sm },
+    paymentChip: {
+        flexDirection: 'row', alignItems: 'center', gap: 5,
+        paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+        borderRadius: BorderRadius.full, borderWidth: 1,
+    },
+    paymentChipActive: { borderWidth: 1 },
+    paymentChipText: { fontSize: FontSize.sm, fontFamily: 'Poppins_500Medium' },
+    paymentChipTextActive: { fontFamily: 'Poppins_700Bold' },
+    noAssetsHint: { fontSize: FontSize.sm, fontFamily: 'Poppins_400Regular', marginTop: Spacing.xs },
 });

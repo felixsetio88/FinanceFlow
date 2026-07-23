@@ -311,7 +311,7 @@ export default function Onboarding() {
                                     value={assetBalance} onChangeText={setAssetBalance} keyboardType="numeric" />
                                 <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
                                     <TouchableOpacity style={[s.formBtn, { flex: 1, backgroundColor: CARD, borderWidth: 1, borderColor: BORDER }]}
-                                        onPress={() => setShowAssetForm(false)}>
+                                        onPress={() => requestAnimationFrame(() => setShowAssetForm(false))}>
                                         <Text style={{ color: TEXT2, fontFamily: 'Poppins_600SemiBold' }}>Cancel</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity style={[s.formBtn, { flex: 2, backgroundColor: E }]} onPress={addLocalAsset}>

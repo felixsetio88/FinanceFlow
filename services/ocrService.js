@@ -49,6 +49,55 @@ function normalizeFrame(frame, width, height) {
     };
 }
 
+// ─── Geometric Line Reconstructor ───────────────
+function reconstructFullTextFromBlocks(blocks) {
+    if (!blocks || blocks.length === 0) return '';
+
+    // Calculate center coordinates
+    const items = blocks.map(b => {
+        return {
+            text: b.text.trim(),
+            cx: b.bbox.x + (b.bbox.w / 2),
+            cy: b.bbox.y + (b.bbox.h / 2),
+            h: b.bbox.h
+        };
+    }).filter(i => i.text.length > 0);
+
+    // Sort vertically
+    items.sort((a, b) => a.cy - b.cy);
+
+    const rows = [];
+    let currentRow = [];
+
+    for (const item of items) {
+        if (currentRow.length === 0) {
+            currentRow.push(item);
+        } else {
+            const rowCy = currentRow[0].cy;
+            // Two blocks belong to the same line if their vertical centers are within half their height of each other
+            const threshold = Math.max(currentRow[0].h, item.h) * 0.5;
+
+            if (Math.abs(item.cy - rowCy) <= threshold) {
+                currentRow.push(item);
+            } else {
+                rows.push(currentRow);
+                currentRow = [item];
+            }
+        }
+    }
+    if (currentRow.length > 0) {
+        rows.push(currentRow);
+    }
+
+    // Sort horizontally within each row and join
+    const lines = rows.map(row => {
+        row.sort((a, b) => a.cx - b.cx);
+        return row.map(i => i.text).join(' ');
+    });
+
+    return lines.join('\n');
+}
+
 function normalizeMLKitResult(result) {
     const lines = [];
     let width = 0;
@@ -69,15 +118,25 @@ function normalizeMLKitResult(result) {
         }
     }
 
-    const fullText = result?.text || lines.map((line) => line.text).join('\n');
+    // Sort blocks top-to-bottom (by vertical center) to restore reading order.
+    // ML Kit returns blocks in arbitrary order; sorting by frame.top gives reliable ordering.
+    lines.sort((a, b) => {
+        const aY = (a.frame?.top ?? 0) + (a.frame?.height ?? 0) / 2;
+        const bY = (b.frame?.top ?? 0) + (b.frame?.height ?? 0) / 2;
+        return aY - bY;
+    });
+
+    const blocks = lines.map((line) => ({
+        text: line.text,
+        confidence: 1,
+        bbox: normalizeFrame(line.frame, width, height),
+    }));
+
+    const reconstructedText = reconstructFullTextFromBlocks(blocks);
 
     return {
-        fullText,
-        blocks: lines.map((line) => ({
-            text: line.text,
-            confidence: 1,
-            bbox: normalizeFrame(line.frame, width, height),
-        })),
+        fullText: reconstructedText || result?.text || lines.map((line) => line.text).join('\n'),
+        blocks,
         width,
         height,
     };
@@ -98,13 +157,17 @@ export async function runOCR(imageUri) {
         const path = Platform.OS === 'ios' ? normalizePath(imageUri) : imageUri;
         const result = await mod.recognizeText(path);
 
+        const blocks = (result?.blocks || []).map((block) => ({
+            text: block.text || '',
+            confidence: block.confidence ?? 1,
+            bbox: block.bbox || { x: 0, y: 0, w: 0, h: 0 },
+        }));
+
+        const reconstructedText = reconstructFullTextFromBlocks(blocks);
+
         return {
-            fullText: result?.fullText || '',
-            blocks: (result?.blocks || []).map((block) => ({
-                text: block.text || '',
-                confidence: block.confidence ?? 1,
-                bbox: block.bbox || { x: 0, y: 0, w: 0, h: 0 },
-            })),
+            fullText: reconstructedText || result?.fullText || '',
+            blocks,
             width: result?.width || 0,
             height: result?.height || 0,
         };
@@ -147,9 +210,12 @@ const NON_ITEM_KEYWORDS = new Set([
     'total', 'grand total', 'amount', 'jumlah',
     'rounding', 'pembulatan',
     'discount', 'diskon', 'tip',
+    '總數', '小計', '淨值', // Chinese totals
     // Payment methods / change
     'bayar', 'cash', 'tunai', 'voucher', 'kembalian', 'change',
     'payment', 'pembayaran', 'debit', 'credit', 'kartu',
+    'paid', 'balance', 'due', 'tendered', 'card', 'ref', 'auth', 'visa', 'mastercard', 'amex', 'terminal', 'merchant',
+    '現金', '找續', '八達通', // Chinese payments
     'edc',          // EDC payment terminal (e.g. "EDC MANDIRI")
     'duitnow', 'fpx', 'ewallet', 'e-wallet', 'ovo', 'gopay', 'dana', 'shopeepay',  // e-wallets
     // Restaurant / POS metadata
@@ -167,11 +233,33 @@ const NON_ITEM_KEYWORDS = new Set([
     'total item', 'total qty', 'total quantity',
     // (do NOT add bare 'item' here — too broad, blocks real item lines)
     // Header / store meta
-    'nama', 'no.bill', 'no. bill', 'tgl/jam',
+    'nama', 'no.bill', 'no. bill', 'tgl/jam', 'tgl./jam',
+    '單號', // Chinese order no
     'npwp', 'alamat', 'address', 'telp', 'phone', 'tel',
     'member', 'struk', 'receipt', 'invoice',
     'company', 'business', 'registration',  // e.g. "Business Registration Number"
     'sst id', 'sst no',                     // Malaysian SST tax ID lines
+    // Indonesian restaurant-specific POS metadata
+    'no.order', 'no. order', 'no.bill', 'no. bill',
+    'bukti pembayaran', 'bukti',            // "BUKTI PEMBAYARAN" = Payment Receipt
+    'no tip', 'no.tip',                     // "No.Tip" = Tip number (POS)
+    'disumbangkan',                         // donated/discarded amount
+    'pelayan', 'waiter', 'waitress',        // waiter name line
+    'untuk kritik', 'saran',                // feedback request footer
+    'customer care',                        // customer care line
+    // Social media / contact footer
+    'instagram', 'facebook', 'twitter', 'tiktok', 'youtube', 'line ',
+    'website', 'web:', 'wa:', 'wa ',        // WhatsApp footer
+    'tlp.', 'tlp ', 'telp.',               // phone prefix (Indonesian)
+    // Digital receipt / app receipt labels
+    'order no', 'order no.', 'check no', 'check no.',
+    'order number', 'check number',
+    'date & time', 'date and time', 'date & time',
+    'my card',                              // e.g. "My Card (7108)" payment line
+    'item name',                            // table column header
+    'unit price',                           // table column header
+    'discount total',                       // Starbucks "Discount Total"
+    'total qty', 'total qty.',              // Starbucks "Total Qty."
     // Footer
     'printed',          // "Printed Mar 17, 2025"
     'terima kasih', 'thank you', 'thanks',
@@ -285,7 +373,7 @@ function getMoneyCandidates(line) {
         // Skip percentages: "10%"
         if (/^\s*%/.test(afterText)) continue;
         // Skip unit prices after "x" or "@": "2x25000"
-        if (/[x@]\s*$/i.test(beforeText)) continue;
+        if (/(?:^|[^a-z])[xX]\s*$|@\s*$/i.test(beforeText)) continue;
 
         const value = parseMoney(raw);
         if (value == null || value <= 0) continue;
@@ -301,9 +389,10 @@ function getMoneyCandidates(line) {
         if (!hasCurrency && !hasMoneySeparator && digits.length === 4
             && value >= 1900 && value <= 2099) continue;
 
-        // Reject extremely long digit sequences (>9 raw digits) without proper thousands
+        // Reject extremely long digit sequences (>7 raw digits) without proper thousands
         // separators — these are reference numbers, registration codes, receipt IDs, etc.
-        if (!hasCurrency && !hasMoneySeparator && digits.length > 9) continue;
+        // 7 digits = 1 million, which is the limit for Indonesian receipts without separators.
+        if (!hasCurrency && !hasMoneySeparator && digits.length > 7) continue;
 
         candidates.push({
             value,
@@ -375,22 +464,30 @@ function parseDate(text) {
     const raw = normLine(text);
     if (!raw) return null;
 
-    // Strip date label prefixes
-    let stripped = raw.replace(/^(tanggal|tgl\/jam|tgl|date|waktu|time)\s*[:.|\-]?\s*/i, '').trim();
+    // Strip date label prefixes — including "Date & Time", "Tgl./Jam"
+    let stripped = raw
+        .replace(/^(?:tanggal|tgl\.?\/jam|tgl|date\s*(?:[&]\s*time|and\s*time)?|date|waktu|time)\s*[:.|\-]?\s*/i, '')
+        .trim();
     stripped = stripped.replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*[,.]?\s*/i, '').trim();
 
-    // Named month: "17 Mar 2026" or "17 Maret 2026"
-    const named = stripped.match(/(\d{1,2})\s+([a-z]+)\s+(\d{4})/i);
+    // Named month DD MMM YY[YY]: "17 Mar 2026" or "17 Maret 26"
+    const named = stripped.match(/(\d{1,2})\s+([a-z]+)\s+(\d{2,4})/i);
     if (named) {
         const mm = MONTH_MAP[named[2].toLowerCase()];
-        if (mm) return `${named[3]}-${mm}-${named[1].padStart(2, '0')}`;
+        if (mm) {
+            const yyyy = named[3].length <= 2 ? `20${named[3]}` : named[3];
+            return `${yyyy}-${mm}-${named[1].padStart(2, '0')}`;
+        }
     }
 
-    // Named month: "March 17, 2026"
-    const named2 = stripped.match(/([a-z]+)\s+(\d{1,2})[,\s]+(\d{4})/i);
+    // Named month MMM DD, YY[YY]: "March 17, 2026" or "Jun 21, 26"
+    const named2 = stripped.match(/([a-z]+)\s+(\d{1,2})[,\s]+(\d{2,4})/i);
     if (named2) {
         const mm = MONTH_MAP[named2[1].toLowerCase()];
-        if (mm) return `${named2[3]}-${mm}-${named2[2].padStart(2, '0')}`;
+        if (mm) {
+            const yyyy = named2[3].length <= 2 ? `20${named2[3]}` : named2[3];
+            return `${yyyy}-${mm}-${named2[2].padStart(2, '0')}`;
+        }
     }
 
     // Numeric DMY: 17/03/2026, 17-03-26
@@ -469,6 +566,35 @@ function isNonItemLine(text) {
     // Lines that are ONLY a currency symbol (possibly with dash/space): "RM", "- RM", "Rp", "IDR"
     // These appear when the label is on one line and "RM <amount>" is on the next.
     if (/^[-\s]*(rm|rp|idr|usd|aud|sgd|myr|\$|\u00a3|\u20ac|\u00a5)\s*$/i.test(lower)) return true;
+
+    // Currency symbol followed only by zero/letter-O (OCR confuses 0 with O): "Rp. O", "Rp. 0"
+    if (/^(?:rp|idr|sgd|usd|myr|rm)\.?\s*[o0]\s*$/i.test(lower)) return true;
+
+    // Standalone negative Rp. amounts are discount/adjustment lines, not items
+    if (/^(?:rp|idr|sgd|usd|myr|rm)\.?\s*-[\d,.]+\s*$/i.test(lower)) return true;
+
+    // Social media handles: lines containing "@" followed by alphanumeric (e.g. "@MMJuice")
+    if (/@[a-z0-9_]{2,}/i.test(lower)) return true;
+
+    // Indonesian phone prefix patterns: "Tlp. 0811-191 176 (WA)", "Telp: 0361-280734"
+    if (/^tlp[.\s]|^telp[.:\s]|^telepon[.:\s]|\bwa[.:\s]\d|\(wa\)/i.test(lower)) return true;
+
+    // Lines that are purely a POS order/bill reference number
+    // e.g. "NO.BILL : 260626185311007", "NO ORDER : 053260626..."
+    if (/^no[.\s]?(bill|order|faktur|struk|receipt|nota|invoice)[:\s]/i.test(lower)) return true;
+
+    // Indonesian POS waiter/cashier label lines: "Waiter : NI MADE ARIANI"
+    if (/^(waiter|pelayan|waitress|kasir|cashier|server)[:\s]/i.test(lower)) return true;
+
+    // Alphanumeric reference/order codes: "SSC9R178203434280SC9R-020", "SC9R_1782034310"
+    // Condition: 10+ chars, contains both digits and letters, no spaces.
+    if (/^[a-z0-9][a-z0-9_\-]{9,}$/i.test(lower.trim()) && /\d/.test(lower) && /[a-z]/i.test(lower)) return true;
+
+    // Payment card reference lines: "My Card (7108)", "Visa (1234)"
+    if (/\b(?:my\s*card|visa|mastercard|amex|debit|credit)\s*\(\d{4}\)/i.test(lower)) return true;
+
+    // Receipt column header lines: "Qty Item Name Unit Price Amount"
+    if (/\b(?:unit\s*price|item\s*name)\b/i.test(lower)) return true;
 
     return false;
 }
@@ -743,6 +869,10 @@ export function parseReceiptFromOCR(fullText) {
         if (!line || line.length < 3) continue;
         if (/\b(jl\.|jln|jalan|street|rd\b|ave\b|blvd|kota|city|telp|phone|tel\b|fax|npwp|www\.|http|\.com|\.id)\b/i.test(line)) continue;
         if (/^[\d\s()+\-]{6,}$/.test(line)) continue;
+        // Skip POS label lines that look like field names, not store names
+        if (/^(order|check)\s*(?:no|number|num)\.?\s*[:\s]/i.test(line)) continue;
+        if (/^date\s*(?:[&]\s*time|and\s*time)/i.test(line)) continue;
+        if (/^(order no|check no|date\s*[&]|tgl\.?\/jam)/i.test(line)) continue;
         // Skip lines that are mostly numbers/punctuation
         const alphaChars = line.replace(/[\d\s.,\-\/()]/g, '');
         if (alphaChars.length < 3) continue;
@@ -753,11 +883,11 @@ export function parseReceiptFromOCR(fullText) {
     // Mark the entire top header block (store name + tagline + address + phone)
     // as off-limits for item parsing. We scan forward from line 0 until we find
     // the first line that looks like it could be a date, a POS label, or an item.
-    // A conservative upper bound: never skip more than 8 lines.
-    for (headerEndIndex = 0; headerEndIndex < Math.min(8, lines.length); headerEndIndex++) {
+    // A conservative upper bound: never skip more than 20 lines for complex Indonesian headers.
+    for (headerEndIndex = 0; headerEndIndex < Math.min(20, lines.length); headerEndIndex++) {
         const line = lines[headerEndIndex].toLowerCase();
         // Stop at POS labels, date lines, or divider lines
-        const isPosLabel = /(pos:|kasir|cashier|tanggal|tgl|date|server|table|meja|tbl\s*\d|no\s*:)/i.test(line);
+        const isPosLabel = /(pos:|kasir|cashier|tanggal|tgl|date|server|table|meja|tbl\s*\d|no\s*:|no\.bill|no\.order|waiter|pelayan|waitress)/i.test(line);
         const isDateLine = /\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b|\b(jan|feb|mar|apr|mei|may|jun|jul|agt|aug|sep|okt|oct|nov|des|dec)\b/i.test(line);
         const isDivider = /^[-=*]{3,}$/.test(line.trim());
         if (isPosLabel || isDateLine || isDivider) break;
@@ -768,8 +898,9 @@ export function parseReceiptFromOCR(fullText) {
     // ─── Date ─────────────────────────────────────────
     // Phase 1: prefer lines with explicit date label or named month (more reliable)
     for (const line of lines) {
-        const hasDateLabel = /\b(tanggal|tgl[\/.:\s]|tgl\/jam|date[\s:.]|waktu|time[\s:.])/i.test(line);
-        const hasNamedMonth = /\b\d{1,2}[\s\/\-](jan|feb|mar|apr|mei|may|jun|jul|agt|aug|sep|okt|oct|nov|des|dec|januari|februari|maret|april|juni|juli|agustus|september|oktober|november|desember|january|february|march|june|july|august|october|december)\b/i.test(line);
+        // Detect "Date & Time" label as well as standard date labels
+        const hasDateLabel = /\b(tanggal|tgl[\/.:\s]|tgl\/jam|tgl\.?jam|date\s*(?:[&]\s*time|and\s*time)?[\s:.]|waktu|time[\s:.])/i.test(line);
+        const hasNamedMonth = /\b(?:jan|feb|mar|apr|mei|may|jun|jul|agt|aug|sep|okt|oct|nov|des|dec|januari|februari|maret|april|juni|juli|agustus|september|oktober|november|desember|january|february|march|june|july|august|october|december)\b/i.test(line);
         if (hasDateLabel || hasNamedMonth) {
             const parsed = parseDate(line);
             if (parsed) { date = parsed; break; }
@@ -836,7 +967,7 @@ export function parseReceiptFromOCR(fullText) {
     const serviceChargeCandidates = [];
     const totalCandidates = [];
 
-    for (let j = 0; j < lines.length; j++) {
+    for (let j = headerEndIndex; j < lines.length; j++) {
         const line = lines[j];
         const lower = line.toLowerCase();
 
@@ -850,7 +981,8 @@ export function parseReceiptFromOCR(fullText) {
         // Tax — but not if the same line also mentions totals/service
         // Also catches Malaysia SST (6.00%) lines
         if (/\b(tax|pajak|ppn|pb1|vat|gst|sst)\b/i.test(lower)
-            && !/\b(sub\s*total|subtotal|sub-total|grand\s*total|total|service|serv|svc|total\s*sales)\b/i.test(lower)) {
+            && !/\b(sub\s*total|subtotal|sub-total|grand\s*total|total|service|serv|svc|total\s*sales)\b/i.test(lower)
+            && !/\b(chk|check|tbl|table|meja)\b/i.test(lower)) {
             // Skip percentage-only lines like "PPN 11%" with no amount
             const lineHasAmount = getMoneyCandidates(line).length > 0
                 || (j + 1 < lines.length && getMoneyCandidates(lines[j + 1]).length > 0);

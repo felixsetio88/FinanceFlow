@@ -32,10 +32,8 @@ export default function Dashboard() {
     );
     const hasMixedAssetCurrencies = assetCurrencies.length > 1;
     const totalAssetValue = useMemo(
-        () => assets
-            .filter(a => (a.currency || currency) === currency)
-            .reduce((sum, a) => sum + (a.balance || 0), 0),
-        [assets, currency]
+        () => assets.reduce((sum, a) => sum + (a.balance || 0), 0),
+        [assets]
     );
     const monthlyTx = useMemo(() => filterTransactionsByPeriod(transactions, 'monthly'), [transactions, currentDateKey]);
     const todayTx = useMemo(() => filterTransactionsByPeriod(transactions, 'daily'), [transactions, currentDateKey]);

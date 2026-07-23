@@ -1,0 +1,65 @@
+{
+  "storeName": "3 meals a day",
+  "date": "2026-07-16",
+  "items": [
+    {
+      "name": "SINGAPORE",
+      "quantity": 1,
+      "price": 188504,
+      "category": "other_spending"
+    },
+    {
+      "name": "1 其他",
+      "quantity": 1,
+      "price": 4.7,
+      "category": "other_spending"
+    },
+    {
+      "name": "1 奶皇芝士鸡丁饭",
+      "quantity": 1,
+      "price": 8.3,
+      "category": "other_spending"
+    },
+    {
+      "name": "- 加蛋 Add Egg +",
+      "quantity": 1,
+      "price": 0.8,
+      "category": "food"
+    },
+    {
+      "name": "1 甘香鸡丁饭",
+      "quantity": 1,
+      "price": 7.8,
+      "category": "other_spending"
+    },
+    {
+      "name": "-加蛋 Add Egg +",
+      "quantity": 1,
+      "price": 0.8,
+      "category": "food"
+    },
+    {
+      "name": "2 茶乌冰",
+      "quantity": 1,
+      "price": 3.4,
+      "category": "other_spending"
+    },
+    {
+      "name": "Tea O Iced",
+      "quantity": 1,
+      "price": 1.7,
+      "category": "food"
+    },
+    {
+      "name": "9% 23.76",
+      "quantity": 1,
+      "price": 2.14,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 25.9,
+  "tax": 2.14,
+  "serviceCharge": 0,
+  "total": 25.9,
+  "paymentMethod": "cash"
+}

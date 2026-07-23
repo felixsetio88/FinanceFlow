@@ -1,0 +1,41 @@
+{
+  "storeName": "Bakiang",
+  "date": "2026-06-07",
+  "items": [
+    {
+      "name": "CAKE HARAJUKU CHEESE",
+      "quantity": 1,
+      "price": 30000,
+      "category": "food"
+    },
+    {
+      "name": "CAKE ORIGINAL MILLE CREPES",
+      "quantity": 1,
+      "price": 48000,
+      "category": "food"
+    },
+    {
+      "name": "CAKE CREAM PUFF",
+      "quantity": 1,
+      "price": 30000,
+      "category": "food"
+    },
+    {
+      "name": "CFE CAFE LATTE HOT",
+      "quantity": 1,
+      "price": 37000,
+      "category": "other_spending"
+    },
+    {
+      "name": "CFE VULCANO CAPPUCINO ICED",
+      "quantity": 1,
+      "price": 42000,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 187000,
+  "tax": 18700,
+  "serviceCharge": 0,
+  "total": 215050,
+  "paymentMethod": "cash"
+}

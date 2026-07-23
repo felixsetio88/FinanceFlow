@@ -12,6 +12,7 @@
 		13B07FC11A68108700A75B9A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB71A68108700A75B9A /* main.m */; };
 		1627ED17AD2CD405EC16D648 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 149084870AE374A2DF646EFD /* PrivacyInfo.xcprivacy */; };
 		2B9A6C31F2A74E6AB1D8C901 /* ReceiptOCRModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B9A6C30F2A74E6AB1D8C901 /* ReceiptOCRModule.swift */; };
+		2B9A6C32F2A74E6AB1D8C901 /* OpenCVScanner.mm in Sources */ = {isa = PBXBuildFile; fileRef = 2B9A6C33F2A74E6AB1D8C901 /* OpenCVScanner.mm */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		426EECEE39224B688A8527AC /* noop-file.swift in Sources */ = {isa = PBXBuildFile; fileRef = 828ECB497E5A4A8DAD31B2E7 /* noop-file.swift */; };
 		7E8C53D0184A43B1A6F2D457 /* ReceiptOCRModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 7E8C53CF184A43B1A6F2D457 /* ReceiptOCRModule.m */; };
@@ -30,6 +31,7 @@
 		13B07FB71A68108700A75B9A /* main.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = main.m; path = FinanceFlow/main.m; sourceTree = "<group>"; };
 		149084870AE374A2DF646EFD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = FinanceFlow/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2B9A6C30F2A74E6AB1D8C901 /* ReceiptOCRModule.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = ReceiptOCRModule.swift; path = FinanceFlow/ReceiptOCRModule.swift; sourceTree = "<group>"; };
+		2B9A6C33F2A74E6AB1D8C901 /* OpenCVScanner.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = OpenCVScanner.mm; path = FinanceFlow/OpenCVScanner.mm; sourceTree = "<group>"; };
 		58EEBF8E8E6FB1BC6CAF49B5 /* libPods-FinanceFlow.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-FinanceFlow.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6C2E3173556A471DD304B334 /* Pods-FinanceFlow.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceFlow.debug.xcconfig"; path = "Target Support Files/Pods-FinanceFlow/Pods-FinanceFlow.debug.xcconfig"; sourceTree = "<group>"; };
 		7A4D352CD337FB3A3BF06240 /* Pods-FinanceFlow.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FinanceFlow.release.xcconfig"; path = "Target Support Files/Pods-FinanceFlow/Pods-FinanceFlow.release.xcconfig"; sourceTree = "<group>"; };
@@ -65,6 +67,7 @@
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				828ECB497E5A4A8DAD31B2E7 /* noop-file.swift */,
 				2B9A6C30F2A74E6AB1D8C901 /* ReceiptOCRModule.swift */,
+				2B9A6C33F2A74E6AB1D8C901 /* OpenCVScanner.mm */,
 				7E8C53CF184A43B1A6F2D457 /* ReceiptOCRModule.m */,
 				0F005909A05249C7BFCD71EF /* FinanceFlow-Bridging-Header.h */,
 				149084870AE374A2DF646EFD /* PrivacyInfo.xcprivacy */,
@@ -348,6 +351,7 @@
 				B18059E884C0ABDD17F3DC3D /* ExpoModulesProvider.swift in Sources */,
 				426EECEE39224B688A8527AC /* noop-file.swift in Sources */,
 				2B9A6C31F2A74E6AB1D8C901 /* ReceiptOCRModule.swift in Sources */,
+				2B9A6C32F2A74E6AB1D8C901 /* OpenCVScanner.mm in Sources */,
 				7E8C53D0184A43B1A6F2D457 /* ReceiptOCRModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

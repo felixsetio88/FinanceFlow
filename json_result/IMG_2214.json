@@ -1,0 +1,23 @@
+{
+  "storeName": "STUFFED Living World",
+  "date": "2026-05-24",
+  "items": [
+    {
+      "name": "Dubai Chewy Bomb",
+      "quantity": 5,
+      "price": 200000,
+      "category": "other_spending"
+    },
+    {
+      "name": "Scoop n Go matcha",
+      "quantity": 1,
+      "price": 48500,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 248500,
+  "tax": 0,
+  "serviceCharge": 0,
+  "total": 249,
+  "paymentMethod": "cash"
+}

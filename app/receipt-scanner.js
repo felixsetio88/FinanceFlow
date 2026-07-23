@@ -44,6 +44,7 @@ import {
     loadReceiptScanSession,
     updateReceiptScanSession,
 } from "../services/receiptScanSession";
+import EdgeDetectionModal from "../components/EdgeDetectionModal";
 import { spendingCategories } from "../utils/categories";
 import { generateId } from "../utils/helpers";
 import { Colors, Spacing, FontSize, BorderRadius } from "../constants/theme";
@@ -173,6 +174,7 @@ export default function ReceiptScanner() {
     const [scanTaskId, setScanTaskId] = useState(null);
     const [fastScanEnabled, setFastScanEnabled] = useState(true);
     const [ocrProgress, setOcrProgress] = useState("");
+    const [pendingCropAsset, setPendingCropAsset] = useState(null);
 
     const isMountedRef = useRef(true);
     const activeScanTaskRef = useRef(null);
@@ -180,6 +182,8 @@ export default function ReceiptScanner() {
     const allowBackgroundRef = useRef(false);
     const promptVisibleRef = useRef(false);
     const imageUri = imageAsset?.uri || null;
+
+
 
     const resolveActiveTaskId = () => {
         const currentTaskId = scanTaskId || activeScanTaskRef.current;
@@ -411,15 +415,7 @@ export default function ReceiptScanner() {
                     allowsEditing: false,
                 });
             if (!result.canceled) {
-                setImageAsset(result.assets[0]);
-                setReceiptData(null);
-                await updateReceiptScanSession({
-                    imageAsset: result.assets[0],
-                    status: "idle",
-                    taskId: null,
-                    result: null,
-                    error: null,
-                });
+                setPendingCropAsset(result.assets[0]);
             }
         };
 
@@ -1171,6 +1167,7 @@ export default function ReceiptScanner() {
                             ]}
                             value={storeName}
                             onChangeText={setStoreName}
+                            scrollEnabled={false}
                             placeholderTextColor={colors.textMuted}
                         />
 
@@ -1188,6 +1185,7 @@ export default function ReceiptScanner() {
                             ]}
                             value={date}
                             onChangeText={setDate}
+                            scrollEnabled={false}
                             placeholder="YYYY-MM-DD"
                             placeholderTextColor={colors.textMuted}
                         />
@@ -1256,6 +1254,9 @@ export default function ReceiptScanner() {
                                     ]}
                                     value={item.name}
                                     onChangeText={(v) => updateItem(i, "name", v)}
+                                    scrollEnabled={false}
+                                    multiline={true}
+                                    blurOnSubmit={true}
                                     placeholder="Item"
                                     placeholderTextColor={colors.textMuted}
                                 />
@@ -1271,6 +1272,9 @@ export default function ReceiptScanner() {
                                     ]}
                                     value={String(item.quantity ?? "1")}
                                     onChangeText={(v) => updateItem(i, "quantity", v)}
+                                    scrollEnabled={false}
+                                    multiline={true}
+                                    blurOnSubmit={true}
                                     onBlur={() => normalizeItemField(i, "quantity")}
                                     keyboardType="number-pad"
                                     placeholder="Qty"
@@ -1288,6 +1292,9 @@ export default function ReceiptScanner() {
                                     ]}
                                     value={String(item.price ?? "0")}
                                     onChangeText={(v) => updateItem(i, "price", v)}
+                                    scrollEnabled={false}
+                                    multiline={true}
+                                    blurOnSubmit={true}
                                     onBlur={() => normalizeItemField(i, "price")}
                                     keyboardType="decimal-pad"
                                     placeholder="Total"
@@ -1380,6 +1387,9 @@ export default function ReceiptScanner() {
                                             ),
                                         );
                                     }}
+                                    scrollEnabled={false}
+                                    multiline={true}
+                                    blurOnSubmit={true}
                                     onBlur={() =>
                                         setSubtotal(normalizeEditableAmount(subtotal, "0"))
                                     }
@@ -1418,6 +1428,9 @@ export default function ReceiptScanner() {
                                             ),
                                         );
                                     }}
+                                    scrollEnabled={false}
+                                    multiline={true}
+                                    blurOnSubmit={true}
                                     onBlur={() => setTax(normalizeEditableAmount(tax, "0"))}
                                     keyboardType="decimal-pad"
                                     placeholder="0"
@@ -1450,6 +1463,9 @@ export default function ReceiptScanner() {
                                             ),
                                         );
                                     }}
+                                    scrollEnabled={false}
+                                    multiline={true}
+                                    blurOnSubmit={true}
                                     onBlur={() =>
                                         setServiceCharge(
                                             normalizeEditableAmount(serviceCharge, "0"),
@@ -1478,6 +1494,9 @@ export default function ReceiptScanner() {
                                 ]}
                                 value={total}
                                 onChangeText={setTotal}
+                                scrollEnabled={false}
+                                multiline={true}
+                                blurOnSubmit={true}
                                 onBlur={() => setTotal(normalizeEditableAmount(total, "0"))}
                                 keyboardType="decimal-pad"
                             />
@@ -1522,7 +1541,7 @@ export default function ReceiptScanner() {
                                                 },
                                             ],
                                         ]}
-                                        onPress={() => setSelectedAssetId(null)}
+                                        onPress={() => requestAnimationFrame(() => setSelectedAssetId(null))}
                                         activeOpacity={0.8}
                                     >
                                         <Ionicons
@@ -1613,6 +1632,39 @@ export default function ReceiptScanner() {
                     </View>
                 )}
             </ScrollView>
+            {/* Edge Detection Modal */}
+            <EdgeDetectionModal
+                visible={!!pendingCropAsset}
+                imageAsset={pendingCropAsset}
+                onCancel={() => {
+                    // Back button or hardware back → use original (no crop)
+                    if (pendingCropAsset) {
+                        const orig = pendingCropAsset;
+                        setPendingCropAsset(null);
+                        setImageAsset(orig);
+                        setReceiptData(null);
+                        updateReceiptScanSession({
+                            imageAsset: orig,
+                            status: 'idle',
+                            taskId: null,
+                            result: null,
+                            error: null,
+                        });
+                    }
+                }}
+                onConfirm={(croppedAsset) => {
+                    setPendingCropAsset(null);
+                    setImageAsset(croppedAsset);
+                    setReceiptData(null);
+                    updateReceiptScanSession({
+                        imageAsset: croppedAsset,
+                        status: 'idle',
+                        taskId: null,
+                        result: null,
+                        error: null,
+                    });
+                }}
+            />
         </View>
     );
 }
@@ -1942,7 +1994,7 @@ const styles = StyleSheet.create({
         gap: Spacing.sm,
         marginBottom: Spacing.sm,
     },
-    qtyInput: { width: 64, textAlign: "center" },
+    qtyInput: { width: 72, textAlign: "center", paddingHorizontal: 8 },
     removeBtn: {
         width: 32,
         height: 32,
@@ -1986,7 +2038,7 @@ const styles = StyleSheet.create({
         fontFamily: "Poppins_600SemiBold",
         color: "#1A1040",
     },
-    summaryInput: { width: 110, textAlign: "right" },
+    summaryInput: { width: 130, textAlign: "right", paddingHorizontal: 12 },
     totalRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -2002,11 +2054,12 @@ const styles = StyleSheet.create({
         color: "#1A1040",
     },
     totalInput: {
-        width: 130,
+        width: 150,
         textAlign: "right",
         fontSize: FontSize.xl,
         fontFamily: "Poppins_800ExtraBold",
         color: "#ff6600",
+        paddingHorizontal: 12,
     },
     paymentRow: { flexDirection: "row", gap: Spacing.sm },
     paymentChip: {

@@ -221,7 +221,7 @@ export default function VehiclesScreen() {
                                 <Ionicons name="car-sport" size={20} color={purple} />
                             </View>
                             <Text style={[s.modalTitle, { color: textPrimary }]}>Add Vehicle</Text>
-                            <TouchableOpacity onPress={() => setShowAddVehicleModal(false)} style={[s.modalClose, { backgroundColor: colors.inputBg }]}>
+                            <TouchableOpacity onPress={() => requestAnimationFrame(() => setShowAddVehicleModal(false))} style={[s.modalClose, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="close" size={18} color={textSec} />
                             </TouchableOpacity>
                         </View>
@@ -254,7 +254,7 @@ export default function VehiclesScreen() {
                         </View>
 
                         <View style={s.modalActions}>
-                            <TouchableOpacity style={[s.cancelBtn, { borderColor: border }]} onPress={() => setShowAddVehicleModal(false)}>
+                            <TouchableOpacity style={[s.cancelBtn, { borderColor: border }]} onPress={() => requestAnimationFrame(() => setShowAddVehicleModal(false))}>
                                 <Text style={[s.cancelTxt, { color: textSec }]}>Cancel</Text>
                             </TouchableOpacity>
                             <TouchableOpacity

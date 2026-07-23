@@ -1,0 +1,35 @@
+{
+  "storeName": "PT. CASA LOCA",
+  "date": "2025-03-17",
+  "items": [
+    {
+      "name": "SIGNATURE PORK SPARE RIBS",
+      "quantity": 1,
+      "price": 229000,
+      "category": "food"
+    },
+    {
+      "name": "MAC N CHEESE",
+      "quantity": 1,
+      "price": 75000,
+      "category": "other_spending"
+    },
+    {
+      "name": "STEAMED RICE.",
+      "quantity": 1,
+      "price": 17000,
+      "category": "food"
+    },
+    {
+      "name": "NACHOS PORK",
+      "quantity": 1,
+      "price": 75000,
+      "category": "food"
+    }
+  ],
+  "subtotal": 396000,
+  "tax": 42372,
+  "serviceCharge": 27720,
+  "total": 466100,
+  "paymentMethod": "cash"
+}

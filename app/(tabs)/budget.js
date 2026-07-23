@@ -183,7 +183,7 @@ export default function Budget() {
                         <View style={styles.modalHandle} />
                         <View style={styles.modalHeader}>
                             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{editBudget ? 'Edit Budget' : 'New Budget'}</Text>
-                            <TouchableOpacity onPress={() => setShowModal(false)} style={[styles.closeBtn, { backgroundColor: colors.inputBg }]}>
+                            <TouchableOpacity onPress={() => requestAnimationFrame(() => setShowModal(false))} style={[styles.closeBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="close" size={20} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>

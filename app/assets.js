@@ -254,7 +254,7 @@ export default function Assets() {
                                 {/* Modal header */}
                                 <View style={styles.modalHeader}>
                                     <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{editAsset ? 'Edit Account' : 'New Account'}</Text>
-                                    <TouchableOpacity onPress={() => setShowModal(false)}>
+                                    <TouchableOpacity onPress={() => requestAnimationFrame(() => setShowModal(false))}>
                                         <Ionicons name="close" size={24} color={colors.textSecondary} />
                                     </TouchableOpacity>
                                 </View>
@@ -356,7 +356,7 @@ export default function Assets() {
                     <View style={[styles.modalBox, { backgroundColor: colors.modalBg }]}>
                         <View style={styles.modalHeader}>
                             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Transfer Funds</Text>
-                            <TouchableOpacity onPress={() => setShowTransfer(false)}>
+                            <TouchableOpacity onPress={() => requestAnimationFrame(() => setShowTransfer(false))}>
                                 <Ionicons name="close" size={24} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
         color: Colors.dark.text,
         marginTop: 4,
     },
-    
+
     // Allocation Chart
     allocationContainer: {
         marginHorizontal: Spacing.lg,

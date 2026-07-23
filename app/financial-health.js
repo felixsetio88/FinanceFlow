@@ -129,7 +129,7 @@ export default function FinancialHealth() {
         let liquidAssets = assets
             .filter(a => ['bank', 'cash', 'investment'].includes(a.type))
             .reduce((sum, a) => sum + a.balance, 0);
-            
+
         const endOfSelectedMonth = new Date(year, month + 1, 0, 23, 59, 59, 999).getTime();
 
         // 2. Adjust live assets backwards by reverting future transactions
@@ -281,11 +281,23 @@ Data for ${monthName}:
     };
 
     return (
-        <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.container, { backgroundColor: colors.background, paddingTop: Platform.OS === 'android' ? insets.top : 0 }]}>
+            <View style={[styles.handle, { backgroundColor: colors.border }]} />
+
             {/* Header */}
-            <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-                <TouchableOpacity onPress={() => router.back()} style={[styles.backBtn, { backgroundColor: colors.card }]}>
-                    <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+            <View style={styles.header}>
+                <TouchableOpacity
+                    onPress={() => router.back()}
+                    style={[
+                        styles.backBtn,
+                        {
+                            backgroundColor: colors.card,
+                            borderColor: colors.border,
+                            borderWidth: 1,
+                        },
+                    ]}
+                >
+                    <Ionicons name="arrow-back" size={20} color={colors.primary} />
                 </TouchableOpacity>
                 <Text style={[styles.title, { color: colors.textPrimary }]}>Financial Health</Text>
                 <View style={{ width: 40 }} />
@@ -411,15 +423,23 @@ Data for ${monthName}:
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
+    handle: {
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: "rgba(83,96,132,0.2)",
+        alignSelf: "center",
+        marginTop: Spacing.md,
+    },
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md,
+        paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
     },
     backBtn: {
         width: 40, height: 40, borderRadius: 14,
         alignItems: 'center', justifyContent: 'center',
     },
-    title: { fontSize: FontSize.lg, fontFamily: 'Poppins_700Bold' },
+    title: { fontSize: FontSize.xl, fontFamily: 'Poppins_800ExtraBold' },
     scrollContent: { padding: Spacing.lg },
 
     monthSelector: {

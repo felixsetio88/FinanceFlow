@@ -1,0 +1,35 @@
+{
+  "storeName": "JL. GATOT SUBROTO BARAT NO.333 BALI Tip. 0811-19176938 (WA)",
+  "date": "2026-06-26",
+  "items": [
+    {
+      "name": "Nasi Goreng SMS (T/O)",
+      "quantity": 1,
+      "price": 40601,
+      "category": "food"
+    },
+    {
+      "name": "Nasi Goreng Special (T/O)",
+      "quantity": 1,
+      "price": 52075,
+      "category": "food"
+    },
+    {
+      "name": "Melon",
+      "quantity": 1,
+      "price": 32657,
+      "category": "other_spending"
+    },
+    {
+      "name": "Cold Tea No Sugar",
+      "quantity": 1,
+      "price": 11474,
+      "category": "food"
+    }
+  ],
+  "subtotal": 136807,
+  "tax": 14091,
+  "serviceCharge": 4104,
+  "total": 155000,
+  "paymentMethod": "cash"
+}

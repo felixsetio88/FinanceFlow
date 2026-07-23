@@ -1,0 +1,17 @@
+{
+  "storeName": "YOSHINOYA",
+  "date": "2023-08-28",
+  "items": [
+    {
+      "name": "R-Rdng Beef-T",
+      "quantity": 1,
+      "price": 51818,
+      "category": "food"
+    }
+  ],
+  "subtotal": 51818,
+  "tax": 5182,
+  "serviceCharge": 0,
+  "total": 57000,
+  "paymentMethod": "cash"
+}

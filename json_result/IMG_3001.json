@@ -1,0 +1,23 @@
+{
+  "storeName": "STARBUCKS UNITED IN",
+  "date": "2026-06-21",
+  "items": [
+    {
+      "name": "Pure Matcha Latte Rp. 58,182",
+      "quantity": 1,
+      "price": 64000,
+      "category": "other_spending"
+    },
+    {
+      "name": "1 Iced Rp. O",
+      "quantity": 1,
+      "price": 46000,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 78000,
+  "tax": 0,
+  "serviceCharge": 0,
+  "total": 78000,
+  "paymentMethod": "cash"
+}

@@ -55,9 +55,9 @@ function DatePickerInput({ label, value, onChange, colors }) {
                         <Text style={[styles.dpTitle, { color: colors.textPrimary }]}>Select {label}</Text>
                         <View style={styles.dpRow}>
                             {[
-                                { label: 'Month', value: monthNames[month], up: () => setMonth((month + 11) % 12), down: () => setMonth((month + 1) % 12) },
-                                { label: 'Day', value: day, up: () => setDay(day <= 1 ? daysInMonth : day - 1), down: () => setDay(day >= daysInMonth ? 1 : day + 1) },
-                                { label: 'Year', value: year, up: () => setYear(year - 1), down: () => setYear(year + 1) },
+                                { label: 'Month', value: monthNames[month], up: () => setMonth((month + 1) % 12), down: () => setMonth((month + 11) % 12) },
+                                { label: 'Day', value: day, up: () => setDay(day >= daysInMonth ? 1 : day + 1), down: () => setDay(day <= 1 ? daysInMonth : day - 1) },
+                                { label: 'Year', value: year, up: () => setYear(year + 1), down: () => setYear(year - 1) },
                             ].map((f, i) => (
                                 <View key={i} style={styles.dpField}>
                                     <Text style={styles.dpFieldLabel}>{f.label}</Text>
@@ -68,7 +68,7 @@ function DatePickerInput({ label, value, onChange, colors }) {
                             ))}
                         </View>
                         <View style={styles.dpBtnRow}>
-                            <TouchableOpacity onPress={() => setShow(false)} style={[styles.dpCancel, { backgroundColor: colors.primaryLight }]}><Text style={styles.dpCancelText}>Cancel</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => requestAnimationFrame(() => setShow(false))} style={[styles.dpCancel, { backgroundColor: colors.primaryLight }]}><Text style={styles.dpCancelText}>Cancel</Text></TouchableOpacity>
                             <TouchableOpacity onPress={confirm} style={[styles.dpConfirm, { backgroundColor: colors.primary }]}><Text style={styles.dpConfirmText}>Confirm</Text></TouchableOpacity>
                         </View>
                     </View>
@@ -504,7 +504,7 @@ export default function Savings() {
                             <View style={styles.modalHandle} />
                             <View style={styles.modalHeader}>
                                 <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{editGoal ? 'Edit Goal' : 'New Saving Goal'}</Text>
-                                <TouchableOpacity onPress={() => setShowModal(false)} style={[styles.closeBtn, { backgroundColor: colors.inputBg }]}>
+                                <TouchableOpacity onPress={() => requestAnimationFrame(() => setShowModal(false))} style={[styles.closeBtn, { backgroundColor: colors.inputBg }]}>
                                     <Ionicons name="close" size={20} color={colors.textSecondary} />
                                 </TouchableOpacity>
                             </View>
@@ -652,7 +652,7 @@ export default function Savings() {
                         <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
                             <TouchableOpacity
                                 style={{ flex: 1, padding: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}
-                                onPress={() => setShowTimePicker(false)}
+                                onPress={() => requestAnimationFrame(() => setShowTimePicker(false))}
                             >
                                 <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: FontSize.sm, color: colors.textSecondary }}>Cancel</Text>
                             </TouchableOpacity>
@@ -677,7 +677,7 @@ export default function Savings() {
                         <View style={styles.modalHandle} />
                         <View style={styles.modalHeader}>
                             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Add to Saving</Text>
-                            <TouchableOpacity onPress={() => setShowAddModal(false)} style={[styles.closeBtn, { backgroundColor: colors.inputBg }]}>
+                            <TouchableOpacity onPress={() => requestAnimationFrame(() => setShowAddModal(false))} style={[styles.closeBtn, { backgroundColor: colors.inputBg }]}>
                                 <Ionicons name="close" size={20} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
@@ -718,7 +718,7 @@ export default function Savings() {
                             <View style={styles.modalHandle} />
                             <View style={styles.modalHeader}>
                                 <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Goal Details</Text>
-                                <TouchableOpacity onPress={() => setDetailGoalId(null)} style={[styles.closeBtn, { backgroundColor: colors.inputBg }]}>
+                                <TouchableOpacity onPress={() => requestAnimationFrame(() => setDetailGoalId(null))} style={[styles.closeBtn, { backgroundColor: colors.inputBg }]}>
                                     <Ionicons name="close" size={20} color={colors.textSecondary} />
                                 </TouchableOpacity>
                             </View>

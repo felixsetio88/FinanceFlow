@@ -39,9 +39,9 @@ function DatePickerModal({ visible, value, onConfirm, onClose, colors }) {
                     <Text style={[styles.dpTitle, { color: colors.textPrimary }]}>Select Date</Text>
                     <View style={styles.dpRow}>
                         {[
-                            { label: 'Month', value: months[month], up: () => setMonth((month + 11) % 12), down: () => setMonth((month + 1) % 12) },
-                            { label: 'Day', value: day, up: () => setDay(day <= 1 ? daysInMonth : day - 1), down: () => setDay(day >= daysInMonth ? 1 : day + 1) },
-                            { label: 'Year', value: year, up: () => setYear(year - 1), down: () => setYear(year + 1) },
+                            { label: 'Month', value: months[month], up: () => setMonth((month + 1) % 12), down: () => setMonth((month + 11) % 12) },
+                            { label: 'Day', value: day, up: () => setDay(day >= daysInMonth ? 1 : day + 1), down: () => setDay(day <= 1 ? daysInMonth : day - 1) },
+                            { label: 'Year', value: year, up: () => setYear(year + 1), down: () => setYear(year - 1) },
                         ].map((f, i) => (
                             <View key={i} style={styles.dpField}>
                                 <Text style={styles.dpFieldLabel}>{f.label}</Text>

@@ -1,0 +1,47 @@
+{
+  "storeName": "BK1T West",
+  "date": "2024-01-14",
+  "items": [
+    {
+      "name": "Paket Crispy 5 B",
+      "quantity": 1,
+      "price": 96818,
+      "category": "other_spending"
+    },
+    {
+      "name": "COLD MILO 160Z",
+      "quantity": 1,
+      "price": 20000,
+      "category": "other_spending"
+    },
+    {
+      "name": "MED JASMINE TEA",
+      "quantity": 1,
+      "price": 2727,
+      "category": "food"
+    },
+    {
+      "name": "MED JASMINE TEA",
+      "quantity": 1,
+      "price": 1818,
+      "category": "food"
+    },
+    {
+      "name": "hp.",
+      "quantity": 1,
+      "price": 133500,
+      "category": "shopping"
+    },
+    {
+      "name": "For10% Disc (max disc",
+      "quantity": 1,
+      "price": 500000,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 754863,
+  "tax": 0,
+  "serviceCharge": 0,
+  "total": 121363,
+  "paymentMethod": "cash"
+}

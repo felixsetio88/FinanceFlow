@@ -1,0 +1,29 @@
+{
+  "storeName": "青野家 加入吉野寂族",
+  "date": "2023-07-06",
+  "items": [
+    {
+      "name": "單號：",
+      "quantity": 1,
+      "price": 22039,
+      "category": "other_spending"
+    },
+    {
+      "name": "1 美年達 標準 $0.0",
+      "quantity": 1,
+      "price": 112,
+      "category": "other_spending"
+    },
+    {
+      "name": "八達通號碼 59282915",
+      "quantity": 1,
+      "price": 141.3,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 22292.3,
+  "tax": 0,
+  "serviceCharge": 0,
+  "total": 22292.3,
+  "paymentMethod": "cash"
+}

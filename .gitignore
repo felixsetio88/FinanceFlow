@@ -39,3 +39,4 @@ verify_assets.js
 rename_*.js
 replace_*.js
 revert_*.js
+*.apk

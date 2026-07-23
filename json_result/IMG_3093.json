@@ -1,0 +1,35 @@
+{
+  "storeName": "GATOT",
+  "date": "2026-06-26",
+  "items": [
+    {
+      "name": "Mie Ayam Baso (T/O)",
+      "quantity": 1,
+      "price": 39718,
+      "category": "food"
+    },
+    {
+      "name": "Capcay (T/O)",
+      "quantity": 1,
+      "price": 46779,
+      "category": "other_spending"
+    },
+    {
+      "name": "Kemasan MM",
+      "quantity": 1,
+      "price": 4414,
+      "category": "other_spending"
+    },
+    {
+      "name": "Tempe Goreng (T/O)",
+      "quantity": 1,
+      "price": 9709,
+      "category": "food"
+    }
+  ],
+  "subtotal": 100620,
+  "tax": 10364,
+  "serviceCharge": 3019,
+  "total": 114000,
+  "paymentMethod": "cash"
+}

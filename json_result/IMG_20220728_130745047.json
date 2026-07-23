@@ -1,0 +1,23 @@
+{
+  "storeName": "Golden Donuts Sdn Bhd (155220-w)",
+  "date": "2022-28-07",
+  "items": [
+    {
+      "name": "Check#:",
+      "quantity": 1,
+      "price": 8887,
+      "category": "other_spending"
+    },
+    {
+      "name": "Cappucsino [M]",
+      "quantity": 1,
+      "price": 13.5,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 13.5,
+  "tax": 0,
+  "serviceCharge": 0.81,
+  "total": 14.31,
+  "paymentMethod": "cash"
+}

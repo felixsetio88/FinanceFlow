@@ -1,0 +1,59 @@
+{
+  "storeName": "LAYS Doul",
+  "date": "2024-03-10",
+  "items": [
+    {
+      "name": "LOT",
+      "quantity": 1,
+      "price": 1.41,
+      "category": "other_spending"
+    },
+    {
+      "name": "168 BUKIT BINTANG,",
+      "quantity": 1,
+      "price": 55100,
+      "category": "other_spending"
+    },
+    {
+      "name": "KEN FOODS KITCHEN MANAGEMENT SDN BH",
+      "quantity": 1,
+      "price": 1220012,
+      "category": "other_spending"
+    },
+    {
+      "name": "Buttermilk Chic Cutlet",
+      "quantity": 1,
+      "price": 17,
+      "category": "other_spending"
+    },
+    {
+      "name": "Cheese Sauce",
+      "quantity": 1,
+      "price": 3,
+      "category": "other_spending"
+    },
+    {
+      "name": "1 Set A: Drink Set",
+      "quantity": 1,
+      "price": 5,
+      "category": "food"
+    },
+    {
+      "name": "NO: #",
+      "quantity": 1,
+      "price": 849,
+      "category": "other_spending"
+    },
+    {
+      "name": "Csh :EP21267",
+      "quantity": 1,
+      "price": 504,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 1276491.41,
+  "tax": 0,
+  "serviceCharge": 0,
+  "total": 25,
+  "paymentMethod": "cash"
+}

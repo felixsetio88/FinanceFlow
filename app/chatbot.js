@@ -483,7 +483,7 @@ My message: ${userText}`;
                     <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
                         <View style={styles.modalHeader}>
                             <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Chat History</Text>
-                            <TouchableOpacity onPress={() => setShowHistory(false)}>
+                            <TouchableOpacity onPress={() => requestAnimationFrame(() => setShowHistory(false))}>
                                 <Ionicons name="close" size={24} color={colors.textPrimary} />
                             </TouchableOpacity>
                         </View>

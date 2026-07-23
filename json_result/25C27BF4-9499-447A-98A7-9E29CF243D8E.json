@@ -1,0 +1,23 @@
+{
+  "storeName": "% ARABICA®",
+  "date": "2030-11-25",
+  "items": [
+    {
+      "name": "11830262228888228=998890203 ===",
+      "quantity": 1,
+      "price": 104,
+      "category": "other_spending"
+    },
+    {
+      "name": "Power",
+      "quantity": 1,
+      "price": 415365,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 104,
+  "tax": 0,
+  "serviceCharge": 0,
+  "total": 104,
+  "paymentMethod": "cash"
+}

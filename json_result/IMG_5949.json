@@ -1,0 +1,41 @@
+{
+  "storeName": "TASTE GOOD 好味小厨",
+  "date": "2031-08-24",
+  "items": [
+    {
+      "name": "收银员：Admin",
+      "quantity": 1,
+      "price": 848,
+      "category": "other_spending"
+    },
+    {
+      "name": "2 1奶皇鸡丁饭",
+      "quantity": 1,
+      "price": 14,
+      "category": "other_spending"
+    },
+    {
+      "name": "1 43马来炒面",
+      "quantity": 1,
+      "price": 6,
+      "category": "other_spending"
+    },
+    {
+      "name": "小计：",
+      "quantity": 1,
+      "price": 20,
+      "category": "other_spending"
+    },
+    {
+      "name": "总计：",
+      "quantity": 1,
+      "price": 20,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 908,
+  "tax": 20,
+  "serviceCharge": 0,
+  "total": 928,
+  "paymentMethod": "cash"
+}

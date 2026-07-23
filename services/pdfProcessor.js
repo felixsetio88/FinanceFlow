@@ -621,24 +621,23 @@ function normalizeAmountToken(token) {
     let s = String(token).trim().replace(/[^0-9.,-]/g, '');
     if (!s) return 0;
 
-    const lastDot = s.lastIndexOf('.');
-    const lastComma = s.lastIndexOf(',');
+    // Clean any trailing separators
+    s = s.replace(/[.,]+$/, '');
 
-    if (lastDot !== -1 && lastComma !== -1) {
-        // Use whichever comes last as decimal separator.
-        if (lastDot > lastComma) {
-            s = s.replace(/,/g, '');
-        } else {
-            s = s.replace(/\./g, '').replace(',', '.');
-        }
-    } else if (lastComma !== -1 && /,\d{1,2}$/.test(s)) {
-        s = s.replace(/\./g, '').replace(',', '.');
+    // If it ends with exactly 1 or 2 digits preceded by a dot or comma, 
+    // treat that last separator as the decimal point.
+    if (/(?:[.,])\d{1,2}$/.test(s)) {
+        const lastSeparatorIndex = Math.max(s.lastIndexOf('.'), s.lastIndexOf(','));
+        const integerPart = s.substring(0, lastSeparatorIndex).replace(/[.,]/g, '');
+        const decimalPart = s.substring(lastSeparatorIndex + 1);
+        s = integerPart + '.' + decimalPart;
     } else {
+        // No decimal places, just strip all separators
         s = s.replace(/[.,]/g, '');
     }
 
     const value = parseFloat(s);
-    return Number.isFinite(value) ? value : 0;
+    return isNaN(value) ? 0 : value;
 }
 
 function stripDateTimeTokens(line) {
@@ -662,10 +661,10 @@ function stripDateTimeTokens(line) {
  */
 function stripBankReferenceCodes(line) {
     return line
-        // BCA-style slash-separated reference chains: 0302/FTSCY/WS95271
-        .replace(/\b\d{4}\/[A-Z]+\/[A-Z]+\d+\b/gi, ' ')
-        // BCA CDM reference codes: WSID:ZTA31, WSID:ZUK81
-        .replace(/\bWSID:[A-Z]+\d+\b/gi, ' ')
+        // BCA-style slash-separated reference chains: 0302/FTSCY/WS95271, allows $ for OCR S errors
+        .replace(/\b\d{4}\/[A-Z]+\/[A-Z$0-9]+\b/gi, ' ')
+        // BCA CDM reference codes: WSID:ZTA31, WSID-ZUK81 (allows WSIO misread)
+        .replace(/\bWSI[DO][-:][A-Z0-9]+\b/gi, ' ')
         // Standalone alphanumeric reference codes starting with letters followed by digits
         // e.g. WS95271, ZTA31, ZUK81, NijHkm 7523475 (merchant ref numbers)
         .replace(/\b[A-Z]{2,}[0-9]{2,}\b/gi, ' ')
@@ -683,6 +682,7 @@ function isLikelyMetadataLine(line) {
         'XMP:',
         'CREATEDATE',
         'MODIFYDATE',
+        '/MODDATE',
         'METADATA',
         'HTTP://',
         'HTTPS://',
@@ -694,6 +694,17 @@ function isLikelyMetadataLine(line) {
         '/CATALOG',
         '/PAGES',
         '/FONT',
+        '/CREATOR',
+        '/TITLE',
+        '/PRODUCER',
+        '<<',
+        '>>',
+        'OBJ',
+        'ENDOBJ',
+        'STREAM',
+        'ENDSTREAM',
+        'XREF',
+        'TRAILER',
     ];
 
     return metadataHints.some((hint) => upper.includes(hint));

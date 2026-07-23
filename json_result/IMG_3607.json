@@ -1,0 +1,35 @@
+{
+  "storeName": "DeSa Kitsune",
+  "date": "2026-07-16",
+  "items": [
+    {
+      "name": "Ice chai latte",
+      "quantity": 1,
+      "price": 55000,
+      "category": "other_spending"
+    },
+    {
+      "name": "Sea Salt Latte",
+      "quantity": 1,
+      "price": 60000,
+      "category": "other_spending"
+    },
+    {
+      "name": "Ice Cappuccino",
+      "quantity": 1,
+      "price": 58000,
+      "category": "other_spending"
+    },
+    {
+      "name": "SVC & VF 10%",
+      "quantity": 1,
+      "price": 17300,
+      "category": "other_spending"
+    }
+  ],
+  "subtotal": 173000,
+  "tax": 19030,
+  "serviceCharge": 17300,
+  "total": 209330,
+  "paymentMethod": "cash"
+}
