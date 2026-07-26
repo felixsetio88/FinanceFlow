@@ -1,4 +1,3 @@
-import FastInput from '../components/FastInput';
 import React, { useEffect, useRef, useState } from "react";
 import {
     Platform,
@@ -1158,7 +1157,7 @@ export default function ReceiptScanner() {
                         <Text style={[styles.label, { color: colors.textSecondary }]}>
                             Store Name
                         </Text>
-                        <FastInput
+                        <TextInput
                             style={[
                                 styles.input,
                                 {
@@ -1175,7 +1174,7 @@ export default function ReceiptScanner() {
                         <Text style={[styles.label, { color: colors.textSecondary }]}>
                             Date
                         </Text>
-                        <FastInput
+                        <TextInput
                             style={[
                                 styles.input,
                                 {
@@ -1242,7 +1241,7 @@ export default function ReceiptScanner() {
                         </Text>
                         {items.map((item, i) => (
                             <View key={i} style={styles.itemRow}>
-                                <FastInput
+                                <TextInput
                                     style={[
                                         styles.input,
                                         {
@@ -1258,7 +1257,7 @@ export default function ReceiptScanner() {
                                     placeholder="Item"
                                     placeholderTextColor={colors.textMuted}
                                 />
-                                <FastInput
+                                <TextInput
                                     style={[
                                         styles.input,
                                         {
@@ -1276,7 +1275,7 @@ export default function ReceiptScanner() {
                                     placeholder="Qty"
                                     placeholderTextColor={colors.textMuted}
                                 />
-                                <FastInput
+                                <TextInput
                                     style={[
                                         styles.input,
                                         {
@@ -1361,7 +1360,7 @@ export default function ReceiptScanner() {
                                 >
                                     Subtotal
                                 </Text>
-                                <FastInput
+                                <TextInput
                                     style={[
                                         styles.input,
                                         {
@@ -1396,7 +1395,7 @@ export default function ReceiptScanner() {
                                 >
                                     Tax
                                 </Text>
-                                <FastInput
+                                <TextInput
                                     style={[
                                         styles.input,
                                         {
@@ -1433,7 +1432,7 @@ export default function ReceiptScanner() {
                                 >
                                     Service Charge
                                 </Text>
-                                <FastInput
+                                <TextInput
                                     style={[
                                         styles.input,
                                         {
@@ -1470,7 +1469,7 @@ export default function ReceiptScanner() {
                             <Text style={[styles.totalLabel, { color: colors.textPrimary }]}>
                                 Total
                             </Text>
-                            <FastInput
+                            <TextInput
                                 style={[
                                     styles.input,
                                     {

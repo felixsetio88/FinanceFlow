@@ -279,7 +279,7 @@ export default function Assets() {
             </ScrollView>
 
             {/* ── Add / Edit Modal ──────────────────────────────────── */}
-            <Modal visible={showModal} animationType="slide" transparent>
+            <Modal visible={showModal} animationType="slide" transparent onRequestClose={() => setShowModal(false)}>
                 <KeyboardAvoidingView
                     style={{ flex: 1 }}
                     behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -415,7 +415,7 @@ export default function Assets() {
             </Modal>
 
             {/* ── Transfer Modal ────────────────────────────────────── */}
-            <Modal visible={showTransfer} animationType="slide" transparent>
+            <Modal visible={showTransfer} animationType="slide" transparent onRequestClose={() => setShowTransfer(false)}>
                 <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
                     <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
                         <View style={[styles.modalBox, { backgroundColor: colors.modalBg, maxHeight: '90%' }]}>
@@ -476,7 +476,7 @@ export default function Assets() {
             </Modal>
 
             {/* Currency Breakdown Modal */}
-            <Modal visible={showBreakdownModal} transparent animationType="fade">
+            <Modal visible={showBreakdownModal} transparent animationType="fade" onRequestClose={() => setShowBreakdownModal(false)}>
                 <View style={styles.smOverlay}>
                     <View style={[styles.smBox, { backgroundColor: colors.card }]}>
 

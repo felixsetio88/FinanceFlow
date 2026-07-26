@@ -372,7 +372,7 @@ export default function VehiclesScreen() {
             </ScrollView>
 
             {/* ── OBD Settings Modal ── */}
-            <Modal visible={showOBDSettings} transparent animationType="slide">
+            <Modal visible={showOBDSettings} transparent animationType="slide" onRequestClose={() => setShowOBDSettings(false)}>
                 <View style={s.slideOverlay}>
                     <View style={[s.slideBox, { backgroundColor: cardBg }]}>
                         <View style={s.slideHandle}>
@@ -577,7 +577,7 @@ export default function VehiclesScreen() {
             </Modal>
 
             {/* ── Add Vehicle Modal ── */}
-            <Modal visible={showAddModal} transparent animationType="fade">
+            <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={() => setShowAddModal(false)}>
                 <View style={s.modalOverlay}>
                     <View style={[s.modalBox, { backgroundColor: cardBg }]}>
                         <View style={s.modalHeader}>

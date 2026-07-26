@@ -1,4 +1,3 @@
-import FastInput from '../../components/FastInput';
 import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal, Alert, StyleSheet, useWindowDimensions } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-svg';
@@ -8,13 +7,14 @@ import { useApp } from '../../context/AppContext';
 import { formatCurrency } from '../../utils/currencies';
 import { calculateBudgetUsage, generateId } from '../../utils/helpers';
 import { getCategoryById, spendingCategories } from '../../utils/categories';
+import { convertCurrency } from '../../services/exchangeRates';
 import { Spacing, FontSize, BorderRadius } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 
 export default function Budget() {
     const { colors, isDark } = useTheme();
     const router = useRouter();
-    const { budgets, transactions, currency, addBudget, updateBudget, deleteBudget, currentDateKey } = useApp();
+    const { budgets, transactions, currency, exchangeRates, addBudget, updateBudget, deleteBudget, currentDateKey } = useApp();
     const [showModal, setShowModal] = useState(false);
     const [editBudget, setEditBudget] = useState(null);
     const [period, setPeriod] = useState('monthly');
@@ -27,8 +27,16 @@ export default function Budget() {
     );
 
     const budgetSnapshots = useMemo(
-        () => budgets.map((budget) => ({ budget, usage: calculateBudgetUsage(transactions, budget, new Date(currentDateKey)) })),
-        [budgets, transactions, currentDateKey]
+        () => budgets.map((budget) => ({
+            budget,
+            usage: calculateBudgetUsage(
+                transactions,
+                budget,
+                new Date(currentDateKey),
+                t => convertCurrency(t.amount || 0, t.currency || currency, currency, exchangeRates)
+            )
+        })),
+        [budgets, transactions, currentDateKey, currency, exchangeRates]
     );
 
     const openAdd = () => {
@@ -95,9 +103,8 @@ export default function Budget() {
                     </TouchableOpacity>
                     <Text style={[styles.title, { color: colors.textPrimary }]}>Budget Manager</Text>
                 </View>
-                <TouchableOpacity style={[styles.addBtn, { backgroundColor: colors.primary }]} onPress={openAdd}>
-                    <Ionicons name="add" size={16} color="#fff" />
-                    <Text style={styles.addBtnText}>New Budget</Text>
+                <TouchableOpacity style={[styles.addBtn, { backgroundColor: colors.primaryLight }]} onPress={openAdd}>
+                    <Ionicons name="add" size={20} color={colors.primary} />
                 </TouchableOpacity>
             </View>
 
@@ -178,7 +185,7 @@ export default function Budget() {
             </ScrollView>
 
             {/* Add/Edit Modal */}
-            <Modal visible={showModal} animationType="slide" transparent>
+            <Modal visible={showModal} animationType="slide" transparent onRequestClose={() => setShowModal(false)}>
                 <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
                     <View style={[styles.modalBox, { backgroundColor: colors.modalBg }]}>
                         <View style={styles.modalHandle} />
@@ -226,7 +233,7 @@ export default function Budget() {
                         </ScrollView>
 
                         <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Budget Limit ({currency})</Text>
-                        <FastInput
+                        <TextInput
                             style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
                             placeholder="Enter amount"
                             placeholderTextColor={colors.textMuted}
@@ -260,11 +267,9 @@ const styles = StyleSheet.create({
     },
     title: { fontSize: FontSize.xxl, fontFamily: 'Poppins_700Bold', color: '#1A1040' },
     addBtn: {
-        flexDirection: 'row', alignItems: 'center', gap: 4,
-        backgroundColor: '#ff6600', paddingHorizontal: Spacing.md,
-        paddingVertical: 9, borderRadius: BorderRadius.full,
+        width: 38, height: 38, borderRadius: 19,
+        alignItems: 'center', justifyContent: 'center',
     },
-    addBtnText: { color: '#fff', fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm },
     scrollContent: { paddingHorizontal: Spacing.lg, paddingBottom: 110 },
     emptyState: {
         alignItems: 'center',

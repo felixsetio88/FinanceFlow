@@ -83,7 +83,7 @@ export function groupByDate(transactions) {
     return groups;
 }
 
-export function calculateBudgetUsage(transactions, budget, referenceDate = new Date()) {
+export function calculateBudgetUsage(transactions, budget, referenceDate = new Date(), getConvertedAmount = null) {
     const { start, end } = getDateRange(budget.period, referenceDate);
     const periodTransactions = transactions.filter(t => {
         if (t.type !== 'spending') return false;
@@ -91,7 +91,10 @@ export function calculateBudgetUsage(transactions, budget, referenceDate = new D
         const d = new Date(t.date);
         return isWithinInterval(d, { start, end });
     });
-    const spent = periodTransactions.reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
+    const spent = periodTransactions.reduce((sum, t) => {
+        const amt = getConvertedAmount ? Math.abs(getConvertedAmount(t)) : Math.abs(t.amount || 0);
+        return sum + amt;
+    }, 0);
     const limit = budget.amount || 0;
     const remaining = limit - spent;
     const percentage = limit > 0 ? (spent / limit) * 100 : 0;

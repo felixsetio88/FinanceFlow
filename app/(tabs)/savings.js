@@ -497,7 +497,7 @@ export default function Savings() {
             </ScrollView>
 
             {/* Add/Edit Goal Modal */}
-            <Modal visible={showModal} animationType="slide" transparent>
+            <Modal visible={showModal} animationType="slide" transparent onRequestClose={() => { setShowModal(false); setEditGoal(null); }}>
                 <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
                     <ScrollView contentContainerStyle={styles.modalScroll}>
                         <View style={[styles.modalBox, { backgroundColor: colors.modalBg }]}>
@@ -671,7 +671,7 @@ export default function Savings() {
 
 
             {/* Add to Saving Modal */}
-            <Modal visible={showAddModal} animationType="fade" transparent>
+            <Modal visible={showAddModal} animationType="fade" transparent onRequestClose={() => setShowAddModal(false)}>
                 <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
                     <View style={[styles.modalBox, { margin: Spacing.xl, backgroundColor: colors.modalBg }]}>
                         <View style={styles.modalHandle} />
@@ -711,7 +711,7 @@ export default function Savings() {
             </Modal>
 
             {/* Goal Detail + Saving History Modal */}
-            <Modal visible={!!detailGoal} animationType="slide" transparent>
+            <Modal visible={!!detailGoal} animationType="slide" transparent onRequestClose={() => setDetailGoalId(null)}>
                 <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
                     <ScrollView contentContainerStyle={styles.modalScroll}>
                         <View style={[styles.modalBox, { backgroundColor: colors.modalBg }]}>
