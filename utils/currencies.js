@@ -20,6 +20,26 @@ export function getCurrency(code) {
     return currencies.find(c => c.code === code) || currencies[0];
 }
 
+export function getTopCurrencies(defaultCode, selectedCode = null) {
+    const popular = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'SGD'];
+    const defaultCur = getCurrency(defaultCode);
+    const top = [defaultCur];
+    
+    if (selectedCode && selectedCode !== defaultCur.code) {
+        const selCur = getCurrency(selectedCode);
+        if (selCur) top.push(selCur);
+    }
+    
+    for (const code of popular) {
+        if (top.length >= 5) break;
+        if (!top.some(c => c.code === code)) {
+            const cur = getCurrency(code);
+            if (cur) top.push(cur);
+        }
+    }
+    return top;
+}
+
 export function formatCurrency(amount, currencyCode = 'USD') {
     const curr = getCurrency(currencyCode);
     try {

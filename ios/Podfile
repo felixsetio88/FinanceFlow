@@ -7,7 +7,7 @@ podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties
 ENV['RCT_NEW_ARCH_ENABLED'] = podfile_properties['newArchEnabled'] == 'true' ? '1' : '0'
 ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] = podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
 
-platform :ios, podfile_properties['ios.deploymentTarget'] || '15.5'
+platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
 install! 'cocoapods',
   :deterministic_uuids => false
 
@@ -68,31 +68,22 @@ target 'FinanceFlow' do
         config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'
         config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
         config.build_settings['OTHER_CPLUSPLUSFLAGS'] = '$(inherited) -std=gnu++20'
-        # Apple Silicon simulators require arm64; clear inherited pod exclusions.
-        config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
-        
-        if target.name == 'fmt' || target.name == 'React-featureflags'
-          config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
-          config.build_settings['OTHER_CPLUSPLUSFLAGS'] = '$(inherited) -std=gnu++17'
-        end
       end
     end
 
-    # Pods aggregate xcconfigs can reintroduce arm64 exclusion for simulator.
-    installer.aggregate_targets.each do |aggregate_target|
-      aggregate_target.xcconfigs.each_value do |xcconfig|
-        xcconfig.attributes['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
+    # FIX: fmt 11.x + Apple Clang 21 + C++20 consteval regression
+    # Apple Clang 21 (Xcode 16.4) introduced a consteval regression that breaks fmt 11.
+    # We patch fmt/base.h to disable consteval for Apple Clang 21.x builds.
+    fmt_base_h = File.join(__dir__, 'Pods/fmt/include/fmt/base.h')
+    if File.exist?(fmt_base_h)
+      content = File.read(fmt_base_h)
+      old_str = '#elif defined(__apple_build_version__) && __apple_build_version__ < 14000029L'
+      new_str = '#elif defined(__apple_build_version__) && (__apple_build_version__ < 14000029L || __apple_build_version__ >= 21000000L)'
+      if content.include?(old_str)
+        File.write(fmt_base_h, content.gsub(old_str, new_str))
+        puts 'Patched fmt/base.h for Apple Clang 21 consteval fix'
       end
     end
 
-  end
-end
-
-post_integrate do |_installer|
-  support_files = Dir.glob(File.join(__dir__, 'Pods', 'Target Support Files', 'Pods-FinanceFlow', 'Pods-FinanceFlow*.xcconfig'))
-  support_files.each do |path|
-    content = File.read(path)
-    content = content.gsub(/^EXCLUDED_ARCHS\[sdk=iphonesimulator\*\]\s*=.*$/, 'EXCLUDED_ARCHS[sdk=iphonesimulator*] =')
-    File.write(path, content)
   end
 end

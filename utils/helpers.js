@@ -59,12 +59,14 @@ export function filterTransactionsByPeriod(transactions, period, referenceDate) 
     });
 }
 
-export function groupByCategory(transactions) {
+export function groupByCategory(transactions, getConvertedAmount = null) {
     const groups = {};
     transactions.forEach(t => {
         const cat = t.category || 'other_spending';
         if (!groups[cat]) groups[cat] = { total: 0, count: 0, transactions: [] };
-        groups[cat].total += Math.abs(t.amount || 0);
+        
+        const amount = getConvertedAmount ? Math.abs(getConvertedAmount(t)) : Math.abs(t.amount || 0);
+        groups[cat].total += amount;
         groups[cat].count += 1;
         groups[cat].transactions.push(t);
     });

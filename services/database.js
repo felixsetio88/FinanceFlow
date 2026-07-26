@@ -157,6 +157,10 @@ async function initDB(database) {
         'ALTER TABLE transactions ADD COLUMN vehicleMaintenanceItems TEXT',
         'ALTER TABLE vehicles ADD COLUMN initialOdometer REAL',
         'ALTER TABLE vehicles ADD COLUMN isDefault INTEGER DEFAULT 0',
+        'ALTER TABLE vehicles ADD COLUMN obdMacAddress TEXT',
+        'ALTER TABLE vehicles ADD COLUMN totalDistance REAL DEFAULT 0',
+        'ALTER TABLE vehicles ADD COLUMN totalDrivingTime REAL DEFAULT 0',
+        'ALTER TABLE vehicles ADD COLUMN totalFuelConsumed REAL DEFAULT 0',
     ];
     for (const sql of migrations) {
         try { await database.execAsync(sql); } catch (_) { /* column already exists */ }
@@ -459,8 +463,8 @@ export async function updateVehicle(v) {
     }
     const database = await getDB();
     await database.runAsync(
-        'UPDATE vehicles SET name=?, type=?, currency=?, initialOdometer=?, isDefault=? WHERE id=?',
-        [v.name, v.type, v.currency || 'USD', v.initialOdometer || null, v.isDefault ? 1 : 0, v.id]
+        'UPDATE vehicles SET name=?, type=?, currency=?, initialOdometer=?, isDefault=?, obdMacAddress=?, totalDistance=?, totalDrivingTime=?, totalFuelConsumed=? WHERE id=?',
+        [v.name, v.type, v.currency || 'USD', v.initialOdometer || null, v.isDefault ? 1 : 0, v.obdMacAddress || null, v.totalDistance || 0, v.totalDrivingTime || 0, v.totalFuelConsumed || 0, v.id]
     );
 }
 

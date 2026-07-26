@@ -5,7 +5,7 @@ import Svg, { Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-s
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
-import { currencies } from '../utils/currencies';
+import { currencies, getCurrency, formatCurrency, getTopCurrencies } from '../utils/currencies';
 import { exportToJSON, exportToExcel, importFromJSON, importFromExcel, applyImport } from '../services/dataExport';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import * as DocumentPicker from 'expo-document-picker';
@@ -78,13 +78,14 @@ function DatePickerInput({ label, value, onChange, colors }) {
 
 export default function Settings() {
     const router = useRouter();
-    const { currency, setCurrency, loadData } = useApp();
+    const { currency, setCurrency, loadData, exchangeRates, refreshExchangeRates } = useApp();
     const { colors, themeMode, setThemeMode, isDark } = useTheme();
     const [exporting, setExporting] = useState(false);
     const [importing, setImporting] = useState(false);
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
     const [showExportModal, setShowExportModal] = useState(false);
+    const [showAllCurrencies, setShowAllCurrencies] = useState(false);
     const [exportPeriod, setExportPeriod] = useState('all'); // 'daily', 'weekly', 'monthly', 'all', 'custom'
     const [customStartDate, setCustomStartDate] = useState('');
     const [customEndDate, setCustomEndDate] = useState('');
@@ -298,7 +299,7 @@ export default function Settings() {
                 <View style={{ width: 40 }} />
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" scrollEventThrottle={16}>
 
                 {/* Appearance */}
                 <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -355,17 +356,42 @@ export default function Settings() {
                 <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <SectionHeader icon="cash" color={colors.emerald} title="Currency" />
                     <View style={styles.currencyGrid}>
-                        {currencies.map(c => (
+                        {(showAllCurrencies ? currencies : getTopCurrencies(currency)).map(c => (
                             <TouchableOpacity
                                 key={c.code}
                                 style={[styles.currencyOption, { backgroundColor: colors.inputBg, borderColor: colors.border }, currency === c.code && [styles.currencyActive, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]]}
-                                onPress={() => setCurrency(c.code)}
-                                activeOpacity={0.8}
-                            >
+                                onPress={() => setCurrency(c.code)}>
                                 <Text style={[styles.currencyCode, { color: colors.textSecondary }, currency === c.code && [styles.currencyCodeActive, { color: colors.primary }]]}>{c.code}</Text>
                                 <Text style={[styles.currencySymbol, { color: colors.textMuted }, currency === c.code && [styles.currencySymbolActive, { color: colors.primary }]]}>{c.symbol}</Text>
                             </TouchableOpacity>
                         ))}
+                        {!showAllCurrencies && (
+                            <TouchableOpacity
+                                style={[styles.currencyOption, { backgroundColor: colors.inputBg, borderColor: colors.border }]}
+                                onPress={() => setShowAllCurrencies(true)}>
+                                <Ionicons name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
+                                <Text style={[styles.currencySymbol, { color: colors.textMuted }]}>Other</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                    {/* Refresh rates row */}
+                    <View style={{ marginTop: Spacing.md, borderTopWidth: 1, borderColor: colors.border, paddingTop: Spacing.md }}>
+                        <TouchableOpacity
+                            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+                            onPress={async () => {
+                                const ok = await refreshExchangeRates();
+                                Alert.alert(ok ? 'Updated' : 'Error', ok ? 'Exchange rates refreshed.' : 'Failed to fetch rates. Check your connection.');
+                            }}
+                            activeOpacity={0.75}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                                <Ionicons name="refresh" size={16} color={colors.primary} />
+                                <Text style={{ fontSize: FontSize.sm, color: colors.textPrimary, fontFamily: 'Poppins_500Medium' }}>Refresh Exchange Rates</Text>
+                            </View>
+                            <Text style={{ fontSize: FontSize.xs, color: colors.textMuted }}>
+                                {exchangeRates ? 'Updated ' + new Date(exchangeRates.timestamp).toLocaleDateString() : 'Never fetched'}
+                            </Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
 
@@ -709,7 +735,7 @@ export default function Settings() {
                     </View>
                     <View style={styles.aboutRow}>
                         <Text style={[styles.aboutLabel, { color: colors.textSecondary }]}>Copyright © 2026</Text>
-                        <Text style={[styles.aboutValue, { color: colors.textPrimary }]}>By Felix</Text>
+                        <Text style={[styles.aboutValue, { color: colors.textPrimary }]}>Developed with Love</Text>
                     </View>
                 </View>
 
@@ -809,7 +835,8 @@ const styles = StyleSheet.create({
     sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.md },
     sectionIconWrap: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
     sectionTitle: { fontSize: FontSize.lg, fontFamily: 'Poppins_700Bold' },
-    helperText: { fontSize: FontSize.sm, fontFamily: 'Poppins_400Regular', marginBottom: Spacing.md, lineHeight: 18 },
+    helperText: { fontSize: FontSize.xs, color: '#888', fontFamily: 'Poppins_400Regular', marginBottom: Spacing.md },
+
     themeRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
     themeChip: { flex: 1, alignItems: 'center', paddingVertical: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1.5, gap: 6 },
     themeChipText: { fontSize: FontSize.sm, fontFamily: 'Poppins_500Medium' },

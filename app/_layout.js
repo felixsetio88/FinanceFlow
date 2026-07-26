@@ -1,6 +1,7 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useEffect } from 'react';
 import { AppProvider, useApp } from '../context/AppContext';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
@@ -14,6 +15,8 @@ import {
     Poppins_800ExtraBold,
 } from '@expo-google-fonts/poppins';
 import * as Notifications from 'expo-notifications';
+import { logError } from '../services/errorLogger';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 function AppContent() {
     const router = useRouter();
@@ -44,9 +47,10 @@ function AppContent() {
     }, [router]);
 
     return (
-        <View style={[styles.container, { backgroundColor: colors.background }]}>
-            <View style={[styles.content, { backgroundColor: colors.background }]}>
-                <StatusBar style={isDark ? 'light' : 'dark'} />
+        <GestureHandlerRootView style={{ flex: 1 }}>
+            <View style={[styles.container, { backgroundColor: colors.background }]}>
+                <View style={[styles.content, { backgroundColor: colors.background }]}>
+                    <StatusBar style={isDark ? 'light' : 'dark'} />
                 <Stack
                     screenOptions={{
                         headerShown: false,
@@ -100,9 +104,14 @@ function AppContent() {
                         name="vehicle/[id]"
                         options={{ presentation: 'modal', animation: 'slide_from_bottom', gestureEnabled: true }}
                     />
+                    <Stack.Screen
+                        name="obd-dashboard"
+                        options={{ presentation: 'modal', animation: 'slide_from_bottom', gestureEnabled: true }}
+                    />
                 </Stack>
+                </View>
             </View>
-        </View>
+        </GestureHandlerRootView>
     );
 }
 
@@ -141,3 +150,32 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
     },
 });
+
+export function ErrorBoundary({ error, retry }) {
+    useEffect(() => {
+        if (error) {
+            logError(error, 'Global Error Boundary caught a rendering exception.');
+        }
+    }, [error]);
+
+    return (
+        <View style={[styles.container, { justifyContent: 'center', padding: 32, backgroundColor: '#f9fafb' }]}>
+            <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: '#fee2e2', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+                <Ionicons name="warning" size={32} color="#ef4444" />
+            </View>
+            <Text style={{ fontSize: 22, fontFamily: 'Poppins_700Bold', color: '#111827', marginBottom: 12, textAlign: 'center' }}>
+                Oops! Something went wrong.
+            </Text>
+            <Text style={{ fontSize: 14, fontFamily: 'Poppins_400Regular', color: '#4b5563', textAlign: 'center', marginBottom: 32, lineHeight: 22 }}>
+                {error.message || 'An unexpected rendering error occurred. The app prevented a total crash, but this screen failed to load.'}
+            </Text>
+            <TouchableOpacity 
+                style={{ backgroundColor: '#6366f1', paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16, width: '100%', alignItems: 'center', shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 }}
+                onPress={retry}
+                activeOpacity={0.8}
+            >
+                <Text style={{ color: 'white', fontFamily: 'Poppins_600SemiBold', fontSize: 16 }}>Reload Screen</Text>
+            </TouchableOpacity>
+        </View>
+    );
+}

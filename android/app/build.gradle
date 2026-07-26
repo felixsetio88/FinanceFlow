@@ -147,8 +147,6 @@ android {
 }
 
 dependencies {
-    // OpenCV for edge detection and perspective warp
-    implementation 'com.quickbirdstudios:opencv:4.5.3.0'
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

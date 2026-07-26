@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useState } from 'react';
 import { Alert, AppState } from 'react-native';
 import * as db from '../services/database';
+import { getOrFetchRates, fetchExchangeRates, convertCurrency } from '../services/exchangeRates';
+import { obdManager } from '../services/obdManager';
 
 const AppContext = createContext();
 
@@ -23,6 +25,7 @@ const initialState = {
     chatSessions: [],
     vehicles: [],
     currency: 'USD',
+    exchangeRates: null,
     aiApiKey: '',
     aiEndpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     onboardingCompleted: false,
@@ -91,6 +94,8 @@ function reducer(state, action) {
             return { ...state, assets: state.assets.filter(a => a.id !== action.payload) };
         case 'SET_CURRENCY':
             return { ...state, currency: action.payload };
+        case 'SET_RATES':
+            return { ...state, exchangeRates: action.payload };
         case 'SET_AI_CONFIG':
             return { ...state, aiApiKey: action.payload.apiKey, aiEndpoint: action.payload.endpoint };
         case 'BULK_ADD_TRANSACTIONS':
@@ -137,6 +142,7 @@ export function AppProvider({ children }) {
 
     useEffect(() => {
         loadData();
+        obdManager.init();
     }, []);
 
     useEffect(() => {
@@ -184,6 +190,11 @@ export function AppProvider({ children }) {
         try {
             const data = await db.getAllData();
             dispatch({ type: 'LOAD_DATA', payload: data });
+            // Fetch exchange rates after loading settings
+            const curr = data.settings?.currency || 'USD';
+            getOrFetchRates(curr).then(rates => {
+                if (rates) dispatch({ type: 'SET_RATES', payload: rates });
+            });
         } catch (e) {
             console.error('Failed to load data:', e);
             dispatch({ type: 'LOAD_DATA', payload: { transactions: [], budgets: [], assets: [], settings: {} } });
@@ -192,8 +203,9 @@ export function AppProvider({ children }) {
 
     const addTransaction = useCallback(async (tx) => {
         try {
-            const id = await db.addTransaction({ ...tx, currency: state.currency });
-            const fullTx = { ...tx, id, currency: state.currency, items: tx.items || [], photos: tx.photos || [] };
+            const txCurrency = tx.currency || state.currency;
+            const id = await db.addTransaction({ ...tx, currency: txCurrency });
+            const fullTx = { ...tx, id, currency: txCurrency, items: tx.items || [], photos: tx.photos || [] };
             dispatch({ type: 'ADD_TRANSACTION', payload: fullTx });
             return id;
         } catch (error) {
@@ -289,11 +301,29 @@ export function AppProvider({ children }) {
         try {
             await db.setSetting('currency', code);
             dispatch({ type: 'SET_CURRENCY', payload: code });
+            // Refresh rates for the new base currency
+            getOrFetchRates(code).then(rates => {
+                if (rates) dispatch({ type: 'SET_RATES', payload: rates });
+            });
         } catch (error) {
             reportMutationError('Update currency', error);
             throw error;
         }
     }, []);
+
+    const refreshExchangeRates = useCallback(async () => {
+        try {
+            const fresh = await fetchExchangeRates(state.currency);
+            if (fresh) {
+                dispatch({ type: 'SET_RATES', payload: fresh });
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error('Failed to refresh rates:', e);
+            return false;
+        }
+    }, [state.currency]);
 
     const setAiConfig = useCallback(async (apiKey, endpoint) => {
         try {
@@ -468,6 +498,8 @@ export function AppProvider({ children }) {
         updateAsset,
         deleteAsset,
         setCurrency,
+        refreshExchangeRates,
+        convertCurrency,
         setAiConfig,
         bulkAddTransactions,
         getIncome,

@@ -2,7 +2,6 @@
 // Provides async task queuing, progress tracking, and notifications
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { updateReceiptScanSession } from './receiptScanSession';
 import { router } from 'expo-router';
 
 const TASK_STORAGE_KEY = 'bg_tasks';
@@ -381,6 +380,7 @@ export function enqueueReceiptScan(input, scanFunction, options = {}) {
         if (id !== taskId) return;
 
         if (status === TaskStatus.COMPLETED) {
+            const { updateReceiptScanSession } = require('./receiptScanSession');
             updateReceiptScanSession({
                 taskId,
                 status: 'completed',
@@ -392,6 +392,7 @@ export function enqueueReceiptScan(input, scanFunction, options = {}) {
                 result
             );
         } else if (status === TaskStatus.FAILED) {
+            const { updateReceiptScanSession } = require('./receiptScanSession');
             updateReceiptScanSession({
                 taskId,
                 status: 'failed',
@@ -402,6 +403,7 @@ export function enqueueReceiptScan(input, scanFunction, options = {}) {
                 error
             );
         } else if (status === TaskStatus.CANCELLED) {
+            const { updateReceiptScanSession } = require('./receiptScanSession');
             updateReceiptScanSession({
                 taskId: null,
                 status: 'cancelled',

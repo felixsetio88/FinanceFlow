@@ -9,7 +9,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../context/AppContext';
 import { generateId } from '../utils/helpers';
 import { accountTypes, getAccountTypeById } from '../utils/categories';
-import { formatCurrency } from '../utils/currencies';
+import { formatCurrency, currencies, getTopCurrencies } from '../utils/currencies';
 import { Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { importFromJSON, applyImport } from '../services/dataExport';
 
@@ -31,33 +31,68 @@ const FEATURES = [
     { icon: 'sparkles-outline', color: '#EF4444', title: 'Private Local AI', desc: 'Get intelligent offline financial insights powered by fully secure on-device AI.' },
 ];
 
+const CARD_COLORS = [
+    '#ff6600', '#3B82F6', '#1E293B', '#0F4C75',
+    '#059669', '#D97706', '#DC2626', '#DB2777',
+    '#7C3AED', '#0891B2', '#9D174D', '#1E3A5F',
+];
+const DEFAULT_COLORS = ['#ff6600', '#1E3A8A', '#1E293B', '#0F4C75', '#7C3AED', '#9D174D'];
+function getCardColor(asset, index) {
+    return asset.color || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+}
+
 export default function Onboarding() {
     const router = useRouter();
-    const { addAsset, addBudget, addSavingGoal, setOnboardingCompleted, currency, loadData } = useApp();
+    const { addAsset, addBudget, addSavingGoal, setOnboardingCompleted, currency, setCurrency, loadData } = useApp();
 
     const [step, setStep] = useState(0);
     const [choice, setChoice] = useState(null); // 'new' or 'backup'
+    const [selectedCurrency, setSelectedCurrency] = useState(currency || 'USD');
     const [importing, setImporting] = useState(false);
     const [assets, setAssets] = useState([]);
     const [assetName, setAssetName] = useState('');
     const [assetType, setAssetType] = useState('bank');
     const [assetBalance, setAssetBalance] = useState('');
+    const [assetColor, setAssetColor] = useState('#ff6600');
+    const [assetCurrency, setAssetCurrency] = useState(currency || 'USD');
     const [showAssetForm, setShowAssetForm] = useState(false);
+    const [showAllCurrencies, setShowAllCurrencies] = useState(false);
     const [budgetPeriod, setBudgetPeriod] = useState('monthly');
     const [budgetAmount, setBudgetAmount] = useState('');
-    const [wantGoal, setWantGoal] = useState(null);
+    const [goals, setGoals] = useState([]);
+    const [showGoalForm, setShowGoalForm] = useState(false);
     const [goalTitle, setGoalTitle] = useState('');
     const [goalAmount, setGoalAmount] = useState('');
     const [goalStart, setGoalStart] = useState('');
     const [goalEnd, setGoalEnd] = useState('');
     const [goalCommitment, setGoalCommitment] = useState('');
     const [goalNotify, setGoalNotify] = useState(false);
+    
+    const addLocalGoal = () => {
+        if (!goalTitle.trim() || parseFloat(goalAmount) <= 0) {
+            Alert.alert('Error', 'Please enter a valid goal title and target amount.');
+            return;
+        }
+        if (goalStart && goalEnd && new Date(goalStart) > new Date(goalEnd)) {
+            Alert.alert('Error', 'Start date cannot be later than end date.'); return;
+        }
+        if (goalNotify && !goalCommitment) { Alert.alert('Error', 'Please choose a reminder frequency.'); return; }
+        
+        setGoals([...goals, {
+            id: generateId(), title: goalTitle.trim(), targetAmount: parseFloat(goalAmount),
+            currentAmount: 0, startDate: goalStart || null, endDate: goalEnd || null,
+            commitment: goalCommitment || null, notifyEnabled: goalNotify, savingHistory: [], isCompleted: false,
+        }]);
+        setGoalTitle(''); setGoalAmount(''); setGoalStart(''); setGoalEnd(''); setGoalCommitment(''); setGoalNotify(false); setShowGoalForm(false);
+    };
+
+    const removeLocalGoal = (id) => setGoals(goals.filter(g => g.id !== id));
 
     const addLocalAsset = () => {
         if (!assetName.trim()) { Alert.alert('Error', 'Enter account name'); return; }
         const bal = parseFloat(assetBalance) || 0;
-        setAssets([...assets, { id: generateId(), name: assetName.trim(), type: assetType, balance: bal }]);
-        setAssetName(''); setAssetBalance(''); setAssetType('bank'); setShowAssetForm(false);
+        setAssets([...assets, { id: generateId(), name: assetName.trim(), type: assetType, balance: bal, color: assetColor, currency: assetCurrency }]);
+        setAssetName(''); setAssetBalance(''); setAssetType('bank'); setAssetColor('#ff6600'); setAssetCurrency(selectedCurrency); setShowAllCurrencies(false); setShowAssetForm(false);
     };
 
     const removeLocalAsset = (id) => setAssets(assets.filter(a => a.id !== id));
@@ -127,16 +162,8 @@ export default function Onboarding() {
             for (const a of assets) await addAsset(a);
             const amt = parseFloat(budgetAmount);
             if (amt > 0) await addBudget({ id: generateId(), period: budgetPeriod, amount: amt });
-            if (wantGoal === 'yes' && goalTitle.trim() && parseFloat(goalAmount) > 0) {
-                if (goalStart && goalEnd && new Date(goalStart) > new Date(goalEnd)) {
-                    Alert.alert('Error', 'Start date cannot be later than end date.'); return;
-                }
-                if (goalNotify && !goalCommitment) { Alert.alert('Error', 'Please choose a reminder frequency.'); return; }
-                await addSavingGoal({
-                    id: generateId(), title: goalTitle.trim(), targetAmount: parseFloat(goalAmount),
-                    currentAmount: 0, startDate: goalStart || null, endDate: goalEnd || null,
-                    commitment: goalCommitment || null, notifyEnabled: goalNotify, savingHistory: [], isCompleted: false,
-                });
+            for (const g of goals) {
+                await addSavingGoal(g);
             }
             await setOnboardingCompleted();
             router.replace('/(tabs)');
@@ -144,18 +171,24 @@ export default function Onboarding() {
     };
 
     const canNext = () => {
-        if (step === 0) return true;
-        if (step === 1) return choice === 'new';
+        if (step <= 1) return true; // Welcome and Privacy screens
+        if (step === 2) return choice === 'new'; // Choice screen
+        if (step === 3) return !!selectedCurrency; // Currency
         return true;
     };
 
     const nextStep = () => {
-        if (step === 1 && choice === 'backup') {
+        if (step === 2 && choice === 'backup') {
             Alert.alert('Import Backup', 'Please import your backup file below to restore your data, or select "I\'m New Here" to start fresh.');
             return;
         }
         if (!canNext()) { Alert.alert('', 'Please make a selection'); return; }
-        if (step < 4) setStep(step + 1); else handleFinish();
+        
+        if (step === 3) {
+            setCurrency(selectedCurrency);
+        }
+
+        if (step < 6) setStep(step + 1); else handleFinish();
     };
 
     return (
@@ -198,8 +231,46 @@ export default function Onboarding() {
                     </View>
                 )}
 
-                {/* ── Step 1: Getting Started Choice ── */}
+                {/* ── Step 1: Privacy & Offline Notice ── */}
                 {step === 1 && (
+                    <View>
+                        <Text style={s.heading}>Before We Start</Text>
+                        <Text style={s.sub}>FinanceFlow is designed with strict privacy in mind.</Text>
+                        
+                        <View style={s.featuresList}>
+                            <View style={s.featureRow}>
+                                <View style={[s.featureIconWrap, { backgroundColor: '#10B98118' }]}>
+                                    <Ionicons name="shield-checkmark" size={24} color="#10B981" />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={s.featureTitle}>100% Offline Data</Text>
+                                    <Text style={s.featureDesc}>All your financial data, accounts, and transactions are stored entirely on this device. Your data never leaves your phone.</Text>
+                                </View>
+                            </View>
+                            <View style={s.featureRow}>
+                                <View style={[s.featureIconWrap, { backgroundColor: '#F59E0B18' }]}>
+                                    <Ionicons name="globe-outline" size={24} color="#F59E0B" />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={s.featureTitle}>Internet Usage</Text>
+                                    <Text style={s.featureDesc}>The app only requires an internet connection for live currency conversion rates and downloading local AI models for the first time.</Text>
+                                </View>
+                            </View>
+                            <View style={s.featureRow}>
+                                <View style={[s.featureIconWrap, { backgroundColor: '#8B5CF618' }]}>
+                                    <Ionicons name="document-text" size={24} color="#8B5CF6" />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={s.featureTitle}>Privacy Policy</Text>
+                                    <Text style={s.featureDesc}>We do not collect, sell, or analyze your personal financial information. It is yours, completely local and private.</Text>
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+                )}
+
+                {/* ── Step 2: Getting Started Choice ── */}
+                {step === 2 && (
                     <View>
                         <Text style={s.heading}>How would you like to start?</Text>
                         <Text style={s.sub}>Choose whether you are starting fresh or restoring an existing backup file.</Text>
@@ -263,35 +334,86 @@ export default function Onboarding() {
                     </View>
                 )}
 
-                {/* ── Step 2: Accounts ── */}
-                {step === 2 && (
+                {/* ── Step 3: Currency Selection ── */}
+                {step === 3 && (
+                    <View>
+                        <Text style={s.heading}>Select Default Currency</Text>
+                        <Text style={s.sub}>Choose the primary currency you'd like to use in FinanceFlow. You can change this later in Settings.</Text>
+                        
+                        <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
+                            {currencies.map(c => (
+                                <TouchableOpacity key={c.code}
+                                    style={[s.choiceCard, { minHeight: 'auto', flexDirection: 'row', justifyContent: 'flex-start' }, selectedCurrency === c.code && { borderColor: P, backgroundColor: P + '08' }]}
+                                    onPress={() => setSelectedCurrency(c.code)}
+                                    activeOpacity={0.8}>
+                                    <View style={[s.choiceHeader, { marginBottom: 0, marginRight: Spacing.md, backgroundColor: selectedCurrency === c.code ? P : CARD, borderWidth: selectedCurrency === c.code ? 0 : 1, borderColor: BORDER }]}>
+                                        <Text style={{ fontSize: 18, color: selectedCurrency === c.code ? '#fff' : TEXT }}>{c.symbol}</Text>
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[s.choiceTitle, { textAlign: 'left', marginBottom: 0 }]}>{c.code}</Text>
+                                        <Text style={[s.choiceDesc, { textAlign: 'left' }]}>{c.name}</Text>
+                                    </View>
+                                    {selectedCurrency === c.code && <Ionicons name="checkmark-circle" size={20} color={P} />}
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+                )}
+
+                {/* ── Step 4: Accounts ── */}
+                {step === 4 && (
                     <View>
                         <Text style={s.heading}>Add Your Accounts</Text>
                         <Text style={s.sub}>Add your bank accounts, wallets, and cash to get started.</Text>
-                        {assets.map(a => {
+                        {assets.map((a, index) => {
                             const at = getAccountTypeById(a.type);
+                            const cardColor = getCardColor(a, index);
                             return (
-                                <View key={a.id} style={s.assetRow}>
-                                    <View style={[s.assetIconWrap, { backgroundColor: P + '18' }]}>
-                                        <Ionicons name={at.icon} size={20} color={P} />
+                                <View key={a.id} style={[s.atmCard, { backgroundColor: cardColor, shadowColor: '#1A1040' }]}>
+                                    <View style={s.atmCardTop}>
+                                        <View style={s.chip}>
+                                            <View style={s.chipLine} />
+                                            <View style={s.chipLine} />
+                                        </View>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                                            <Ionicons name={at.icon} size={22} color="rgba(255,255,255,0.55)" />
+                                            <TouchableOpacity onPress={() => removeLocalAsset(a.id)} style={{ backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 12, padding: 4 }}>
+                                                <Ionicons name="close" size={16} color="#fff" />
+                                            </TouchableOpacity>
+                                        </View>
                                     </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={s.assetName}>{a.name}</Text>
-                                        <Text style={s.assetMeta}>{at.name} · {formatCurrency(a.balance, currency)}</Text>
-                                    </View>
-                                    <TouchableOpacity onPress={() => removeLocalAsset(a.id)}>
-                                        <Ionicons name="close-circle" size={20} color="#FF7A87" />
-                                    </TouchableOpacity>
+                                    <Text style={s.atmCardName} numberOfLines={1}>{a.name}</Text>
+                                    <Text style={[s.atmCardBalance, { color: a.balance >= 0 ? '#fff' : '#FFB3BA' }]}>
+                                        {formatCurrency(a.balance, a.currency || currency)}
+                                    </Text>
                                 </View>
                             );
                         })}
                         {!showAssetForm ? (
-                            <TouchableOpacity style={s.addBtn} onPress={() => setShowAssetForm(true)}>
-                                <Ionicons name="add-circle-outline" size={20} color={E} />
-                                <Text style={[s.addBtnText, { color: E }]}>Add Account</Text>
+                            <TouchableOpacity style={s.addBtn} onPress={() => { setAssetCurrency(selectedCurrency); setShowAllCurrencies(false); setShowAssetForm(true); }}>
+                                <Ionicons name="add-circle-outline" size={20} color={P} />
+                                <Text style={[s.addBtnText, { color: P }]}>Add Account</Text>
                             </TouchableOpacity>
                         ) : (
                             <View style={s.formCard}>
+                                {/* Preview Card */}
+                                <View style={[s.cardPreview, { backgroundColor: assetColor }]}>
+                                    <View style={s.previewTop}>
+                                        <View style={s.chip}>
+                                            <View style={s.chipLine} />
+                                            <View style={s.chipLine} />
+                                        </View>
+                                        <Ionicons name={getAccountTypeById(assetType).icon} size={20} color="rgba(255,255,255,0.55)" />
+                                    </View>
+                                    <Text style={s.previewName} numberOfLines={1}>
+                                        {assetName || 'Account Name'}
+                                    </Text>
+                                    <Text style={s.previewBalance}>
+                                        {formatCurrency(parseFloat(assetBalance) || 0, assetCurrency)}
+                                    </Text>
+                                    <Text style={s.previewType}>{getAccountTypeById(assetType).name}</Text>
+                                </View>
+
                                 <Text style={s.inputLabel}>Account Name</Text>
                                 <TextInput style={s.input} placeholder="e.g. Savings Account" placeholderTextColor={MUTED}
                                     value={assetName} onChangeText={setAssetName} />
@@ -306,7 +428,43 @@ export default function Onboarding() {
                                         </TouchableOpacity>
                                     ))}
                                 </ScrollView>
-                                <Text style={s.inputLabel}>Balance ({currency})</Text>
+                                <Text style={s.inputLabel}>Card Color</Text>
+                                <View style={s.colorPicker}>
+                                    {CARD_COLORS.map(c => (
+                                        <TouchableOpacity
+                                            key={c}
+                                            style={[s.colorSwatch, { backgroundColor: c }, assetColor === c && s.colorSwatchSelected]}
+                                            onPress={() => setAssetColor(c)}
+                                        />
+                                    ))}
+                                </View>
+                                <Text style={s.inputLabel}>Account Currency</Text>
+                                <View style={s.currencyGrid}>
+                                    {(showAllCurrencies ? currencies : getTopCurrencies(selectedCurrency, assetCurrency)).map(c => (
+                                        <TouchableOpacity
+                                            key={c.code}
+                                            style={[
+                                                s.currencyOption,
+                                                { backgroundColor: CARD, borderColor: BORDER },
+                                                assetCurrency === c.code && [s.currencyActive, { borderColor: P, backgroundColor: P + '18' }],
+                                            ]}
+                                            onPress={() => setAssetCurrency(c.code)}
+                                            activeOpacity={0.8}
+                                        >
+                                            <Text style={[s.currencyCode, { color: TEXT2 }, assetCurrency === c.code && [s.currencyCodeActive, { color: P }]]}>{c.code}</Text>
+                                            <Text style={[s.currencySymbol, { color: MUTED }, assetCurrency === c.code && [s.currencySymbolActive, { color: P }]]}>{c.symbol}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                    {!showAllCurrencies && (
+                                        <TouchableOpacity
+                                            style={[s.currencyOption, { backgroundColor: CARD, borderColor: BORDER }]}
+                                            onPress={() => setShowAllCurrencies(true)}>
+                                            <Ionicons name="ellipsis-horizontal" size={20} color={TEXT2} />
+                                            <Text style={[s.currencySymbol, { color: MUTED }]}>Other</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                                <Text style={s.inputLabel}>Balance ({assetCurrency})</Text>
                                 <TextInput style={s.input} placeholder="0" placeholderTextColor={MUTED}
                                     value={assetBalance} onChangeText={setAssetBalance} keyboardType="numeric" />
                                 <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
@@ -314,7 +472,7 @@ export default function Onboarding() {
                                         onPress={() => requestAnimationFrame(() => setShowAssetForm(false))}>
                                         <Text style={{ color: TEXT2, fontFamily: 'Poppins_600SemiBold' }}>Cancel</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={[s.formBtn, { flex: 2, backgroundColor: E }]} onPress={addLocalAsset}>
+                                    <TouchableOpacity style={[s.formBtn, { flex: 2, backgroundColor: P }]} onPress={addLocalAsset}>
                                         <Text style={{ color: '#fff', fontFamily: 'Poppins_700Bold' }}>Add Account</Text>
                                     </TouchableOpacity>
                                 </View>
@@ -324,8 +482,8 @@ export default function Onboarding() {
                     </View>
                 )}
 
-                {/* ── Step 3: Budget ── */}
-                {step === 3 && (
+                {/* ── Step 5: Budget ── */}
+                {step === 5 && (
                     <View>
                         <Text style={s.heading}>Set Your Budget</Text>
                         <Text style={s.sub}>Set a spending limit to keep your finances on track.</Text>
@@ -348,24 +506,40 @@ export default function Onboarding() {
                     </View>
                 )}
 
-                {/* ── Step 4: Saving Goals ── */}
-                {step === 4 && (
+                {/* ── Step 6: Saving Goals ── */}
+                {step === 6 && (
                     <View>
-                        <Text style={s.heading}>Create a Saving Goal?</Text>
-                        <Text style={s.sub}>Start working towards something meaningful.</Text>
-                        <View style={s.yesnoRow}>
-                            <TouchableOpacity style={[s.yesnoBtn, wantGoal === 'yes' && { borderColor: E, backgroundColor: E + '18' }]}
-                                onPress={() => setWantGoal('yes')}>
-                                <Ionicons name="checkmark-circle" size={28} color={wantGoal === 'yes' ? E : MUTED} />
-                                <Text style={[s.yesnoBtnText, wantGoal === 'yes' && { color: E }]}>Yes, Let's Go!</Text>
+                        <Text style={s.heading}>Create Saving Goals</Text>
+                        <Text style={s.sub}>Start working towards something meaningful. Add your financial targets.</Text>
+                        
+                        {goals.map((g, index) => (
+                            <View key={g.id} style={[s.atmCard, { backgroundColor: getCardColor(g, index), shadowColor: '#1A1040', marginBottom: 12 }]}>
+                                <View style={s.atmCardTop}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
+                                        <Ionicons name="flag" size={22} color="rgba(255,255,255,0.7)" />
+                                        <Text style={[s.atmCardName, { marginLeft: 0 }]} numberOfLines={1}>{g.title}</Text>
+                                    </View>
+                                    <TouchableOpacity onPress={() => removeLocalGoal(g.id)} style={{ backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 12, padding: 4 }}>
+                                        <Ionicons name="close" size={16} color="#fff" />
+                                    </TouchableOpacity>
+                                </View>
+                                <Text style={s.atmCardBalance}>
+                                    {formatCurrency(g.targetAmount, currency)}
+                                </Text>
+                                {g.endDate && (
+                                    <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontFamily: 'Poppins_500Medium', marginTop: 4 }}>
+                                        Target: {g.endDate}
+                                    </Text>
+                                )}
+                            </View>
+                        ))}
+
+                        {!showGoalForm ? (
+                            <TouchableOpacity style={s.addBtn} onPress={() => setShowGoalForm(true)}>
+                                <Ionicons name="add-circle-outline" size={20} color={P} />
+                                <Text style={[s.addBtnText, { color: P }]}>Add New Goal</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={[s.yesnoBtn, wantGoal === 'no' && { borderColor: BORDER }]}
-                                onPress={() => setWantGoal('no')}>
-                                <Ionicons name="time-outline" size={28} color={wantGoal === 'no' ? TEXT2 : MUTED} />
-                                <Text style={[s.yesnoBtnText, wantGoal === 'no' && { color: TEXT2 }]}>Maybe Later</Text>
-                            </TouchableOpacity>
-                        </View>
-                        {wantGoal === 'yes' && (
+                        ) : (
                             <View style={s.formCard}>
                                 <Text style={s.inputLabel}>What is this saving for?</Text>
                                 <TextInput style={s.input} placeholder="e.g. Buy a new PC" placeholderTextColor={MUTED}
@@ -406,6 +580,15 @@ export default function Onboarding() {
                                         </View>
                                     )}
                                 </View>
+                                <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md }}>
+                                    <TouchableOpacity style={[s.formBtn, { flex: 1, backgroundColor: CARD, borderWidth: 1, borderColor: BORDER }]}
+                                        onPress={() => requestAnimationFrame(() => setShowGoalForm(false))}>
+                                        <Text style={{ color: TEXT2, fontFamily: 'Poppins_600SemiBold' }}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[s.formBtn, { flex: 2, backgroundColor: P }]} onPress={addLocalGoal}>
+                                        <Text style={{ color: '#fff', fontFamily: 'Poppins_700Bold' }}>Save Goal</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         )}
                     </View>
@@ -423,8 +606,8 @@ export default function Onboarding() {
                 <TouchableOpacity
                     style={[s.nextBtn, !canNext() && { opacity: 0.5 }]}
                     onPress={nextStep}>
-                    <Text style={s.nextBtnText}>{step === 4 ? 'Get Started' : 'Next'}</Text>
-                    <Ionicons name={step === 4 ? 'checkmark' : 'chevron-forward'} size={18} color="#fff" />
+                    <Text style={s.nextBtnText}>{step === 6 ? 'Get Started' : 'Next'}</Text>
+                    <Ionicons name={step === 6 ? 'checkmark' : 'chevron-forward'} size={18} color="#fff" />
                 </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>
@@ -454,9 +637,6 @@ const s = StyleSheet.create({
     featureRow: {
         flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
         padding: Spacing.md, backgroundColor: CARD, borderRadius: BorderRadius.lg,
-        borderWidth: 1, borderColor: BORDER,
-        shadowColor: '#1A1040', shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05, shadowRadius: 6, elevation: Platform.OS === 'android' ? 0 : 2,
     },
     featureIconWrap: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
     featureTitle: { fontSize: FontSize.md, fontFamily: 'Poppins_700Bold', color: TEXT },
@@ -465,9 +645,8 @@ const s = StyleSheet.create({
     choiceContainer: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.md, marginBottom: Spacing.lg },
     choiceCard: {
         flex: 1, padding: Spacing.md, borderRadius: BorderRadius.lg,
-        backgroundColor: CARD, borderWidth: 2, borderColor: BORDER,
+        backgroundColor: CARD, borderWidth: 2, borderColor: 'transparent',
         alignItems: 'center', position: 'relative', minHeight: 160,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: Platform.OS === 'android' ? 0 : 2,
     },
     choiceHeader: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm },
     choiceTitle: { fontSize: FontSize.md, fontFamily: 'Poppins_700Bold', color: TEXT, textAlign: 'center', marginBottom: Spacing.xs },
@@ -507,8 +686,8 @@ const s = StyleSheet.create({
     addBtn: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
         padding: Spacing.md, borderRadius: BorderRadius.md,
-        backgroundColor: 'rgba(30,201,142,0.1)', borderWidth: 1.5,
-        borderColor: 'rgba(30,201,142,0.3)', marginTop: Spacing.sm,
+        backgroundColor: 'rgba(255,102,0,0.1)', borderWidth: 1.5,
+        borderColor: 'rgba(255,102,0,0.3)', marginTop: Spacing.sm,
     },
     addBtnText: { fontFamily: 'Poppins_700Bold', fontSize: FontSize.md },
     formCard: {
@@ -535,7 +714,7 @@ const s = StyleSheet.create({
         borderRadius: BorderRadius.lg, backgroundColor: CARD,
         borderWidth: 1, borderColor: BORDER, marginRight: Spacing.sm,
     },
-    typeChipActive: { borderColor: E, backgroundColor: E },
+    typeChipActive: { borderColor: P, backgroundColor: P },
     typeChipText: { fontSize: FontSize.sm, color: TEXT2, fontFamily: 'Poppins_600SemiBold' },
     formBtn: {
         paddingVertical: Spacing.md, borderRadius: BorderRadius.md,
@@ -568,6 +747,118 @@ const s = StyleSheet.create({
         borderColor: BORDER, alignItems: 'center', justifyContent: 'center',
     },
     checkLabel: { flex: 1, fontSize: FontSize.sm, color: TEXT2, lineHeight: 18, fontFamily: 'Poppins_400Regular' },
+
+    // ATM card
+    atmCard: {
+        borderRadius: 20,
+        padding: Spacing.xl,
+        minHeight: 160,
+        justifyContent: 'space-between',
+        shadowColor: '#1A1040',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.22,
+        shadowRadius: 14,
+        elevation: Platform.OS === 'android' ? 0 : 8,
+        marginBottom: Spacing.md,
+    },
+    atmCardTop: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: Spacing.md,
+    },
+    chip: {
+        width: 34,
+        height: 26,
+        backgroundColor: 'rgba(255,218,90,0.85)',
+        borderRadius: 5,
+        justifyContent: 'space-evenly',
+        paddingVertical: 6,
+        paddingHorizontal: 4,
+    },
+    chipLine: {
+        height: 1.5,
+        backgroundColor: 'rgba(160,110,0,0.55)',
+        borderRadius: 2,
+    },
+    atmCardName: {
+        color: 'rgba(255,255,255,0.8)',
+        fontSize: FontSize.xs,
+        fontFamily: 'Poppins_400Regular',
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
+        marginBottom: 4,
+    },
+    atmCardBalance: {
+        fontSize: 28,
+        fontFamily: 'Poppins_700Bold',
+        marginBottom: Spacing.md,
+    },
+
+    // Color picker
+    colorPicker: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: Spacing.sm,
+        marginBottom: Spacing.sm,
+    },
+    colorSwatch: {
+        width: 42,
+        height: 42,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    colorSwatchSelected: {
+        borderWidth: 3,
+        borderColor: '#fff',
+    },
+
+    // Currency picker
+    currencyGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.sm },
+    currencyOption: {
+        width: '31%', padding: Spacing.md, borderRadius: BorderRadius.md,
+        borderWidth: 1, alignItems: 'center', justifyContent: 'center'
+    },
+    currencyActive: { borderColor: P },
+    currencyCode: { fontSize: FontSize.sm, fontFamily: 'Poppins_700Bold' },
+    currencyCodeActive: { color: P },
+    currencySymbol: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', marginTop: 1 },
+    currencySymbolActive: { color: P },
+
+    // Card preview
+    cardPreview: {
+        borderRadius: 18,
+        padding: Spacing.xl,
+        minHeight: 150,
+        justifyContent: 'space-between',
+        marginVertical: Spacing.md,
+    },
+    previewTop: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: Spacing.sm,
+    },
+    previewName: {
+        color: 'rgba(255,255,255,0.75)',
+        fontSize: FontSize.xs,
+        fontFamily: 'Poppins_400Regular',
+        letterSpacing: 1.5,
+        textTransform: 'uppercase',
+    },
+    previewBalance: {
+        color: '#FFFFFF',
+        fontSize: 24,
+        fontFamily: 'Poppins_700Bold',
+    },
+    previewType: {
+        color: 'rgba(255,255,255,0.5)',
+        fontSize: FontSize.xs,
+        fontFamily: 'Poppins_400Regular',
+        letterSpacing: 0.5,
+    },
+
     nav: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         paddingHorizontal: Spacing.lg, paddingBottom: Platform.OS === 'ios' ? 40 : 24,

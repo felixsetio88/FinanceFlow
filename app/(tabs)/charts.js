@@ -253,7 +253,7 @@ function AssetsTrendChart({ data, colors, currency, width }) {
 
 export default function Charts() {
     const { colors, isDark } = useTheme();
-    const { transactions, currency, currentDateKey, assets } = useApp();
+    const { transactions, currency, currentDateKey, assets, exchangeRates, convertCurrency } = useApp();
     const [period, setPeriod] = useState('monthly');
     const [refDate, setRefDate] = useState(new Date());
     const [showDateModal, setShowDateModal] = useState(false);
@@ -339,7 +339,7 @@ export default function Charts() {
                 const assetCreatedAt = new Date(a.createdAt || new Date().toISOString());
                 // Only include this asset's balance if it was created before or during this month
                 if (assetCreatedAt <= endOfMonth) {
-                    totalVal += currentBalances[a.id] || 0;
+                    totalVal += convertCurrency(currentBalances[a.id] || 0, a.currency || currency, currency, exchangeRates);
                 }
             });
             
@@ -351,15 +351,15 @@ export default function Charts() {
         }
         
         return monthlyBalances;
-    }, [transactions, assets, currentDateKey]);
+    }, [transactions, assets, currentDateKey, currency, exchangeRates]);
 
     const spendingTx = periodTx.filter(t => t.type === 'spending');
     const incomeTx = periodTx.filter(t => t.type === 'income');
-    const totalSpending = spendingTx.reduce((s, t) => s + Math.abs(t.amount), 0);
-    const totalIncome = incomeTx.reduce((s, t) => s + Math.abs(t.amount), 0);
+    const totalSpending = spendingTx.reduce((s, t) => s + Math.abs(convertCurrency(t.amount, t.currency || currency, currency, exchangeRates)), 0);
+    const totalIncome = incomeTx.reduce((s, t) => s + Math.abs(convertCurrency(t.amount, t.currency || currency, currency, exchangeRates)), 0);
     const netBalance = totalIncome - totalSpending;
 
-    const catGroups = groupByCategory(spendingTx);
+    const catGroups = groupByCategory(spendingTx, (t) => convertCurrency(t.amount, t.currency || currency, currency, exchangeRates));
     const categoryData = Object.entries(catGroups)
         .map(([id, data]) => ({ ...getCategoryById(id), id, total: data.total, count: data.count }))
         .sort((a, b) => b.total - a.total);

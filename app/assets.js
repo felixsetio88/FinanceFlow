@@ -5,7 +5,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useApp } from '../context/AppContext';
-import { formatCurrency } from '../utils/currencies';
+import { formatCurrency, currencies, getTopCurrencies } from '../utils/currencies';
 import { generateId } from '../utils/helpers';
 import { accountTypes, getAccountTypeById } from '../utils/categories';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
@@ -28,36 +28,57 @@ function getCardColor(asset, index) {
 export default function Assets() {
     const { colors, isDark } = useTheme();
     const router = useRouter();
-    const { assets, currency, addAsset, updateAsset, deleteAsset } = useApp();
+    const { assets, currency, addAsset, updateAsset, deleteAsset, exchangeRates, convertCurrency } = useApp();
 
     const [showModal, setShowModal] = useState(false);
     const [showTransfer, setShowTransfer] = useState(false);
     const [editAsset, setEditAsset] = useState(null);
     const [selectedId, setSelectedId] = useState(null);
+    const [showBreakdownModal, setShowBreakdownModal] = useState(false);
+    const [showAllCurrencies, setShowAllCurrencies] = useState(false);
 
     // Form state
     const [name, setName] = useState('');
     const [type, setType] = useState('bank');
     const [balance, setBalance] = useState('');
     const [color, setColor] = useState('#ff6600');
+    const [assetCurrency, setAssetCurrency] = useState(currency);
 
     // Transfer state
     const [fromId, setFromId] = useState('');
     const [toId, setToId] = useState('');
     const [transferAmount, setTransferAmount] = useState('');
 
-    const totalBalance = assets.reduce((s, a) => s + (a.balance || 0), 0);
+    const totalBalance = assets.reduce((s, a) => s + convertCurrency(a.balance || 0, a.currency || currency, currency, exchangeRates), 0);
+
+    // Per-currency subtotals for the breakdown chips
+    const currencyBreakdown = useMemo(() => {
+        const groups = {};
+        assets.forEach(a => {
+            const cur = a.currency || currency;
+            if (!groups[cur]) groups[cur] = 0;
+            groups[cur] += a.balance || 0;
+        });
+        return Object.entries(groups)
+            .map(([cur, total]) => ({
+                cur,
+                originalTotal: total,
+                convertedTotal: convertCurrency(total, cur, currency, exchangeRates),
+            }))
+            .sort((a, b) => b.convertedTotal - a.convertedTotal);
+    }, [assets, currency, exchangeRates]);
+    const hasMixedCurrencies = currencyBreakdown.length > 1;
 
     const [showAllocation, setShowAllocation] = useState(false);
 
     const assetPieData = useMemo(() => {
         return [...assets].sort((a, b) => b.balance - a.balance).map((a, i) => ({
             label: a.name,
-            value: Math.max(a.balance, 0),
+            value: Math.max(convertCurrency(a.balance || 0, a.currency || currency, currency, exchangeRates), 0),
             color: getCardColor(a, i),
             id: a.id
         })).filter(x => x.value > 0);
-    }, [assets]);
+    }, [assets, currency, exchangeRates]);
 
     const openAdd = () => {
         setEditAsset(null);
@@ -65,6 +86,8 @@ export default function Assets() {
         setType('bank');
         setBalance('');
         setColor('#ff6600');
+        setAssetCurrency(currency);
+        setShowAllCurrencies(false);
         setShowModal(true);
     };
 
@@ -74,6 +97,8 @@ export default function Assets() {
         setType(a.type);
         setBalance(String(a.balance || 0));
         setColor(a.color || '#ff6600');
+        setAssetCurrency(a.currency || currency);
+        setShowAllCurrencies(false);
         setShowModal(true);
     };
 
@@ -83,10 +108,11 @@ export default function Assets() {
             return;
         }
         const bal = parseFloat(balance) || 0;
+        const cur = (assetCurrency || currency).trim().toUpperCase();
         if (editAsset) {
-            await updateAsset({ ...editAsset, name, type, balance: bal, color });
+            await updateAsset({ ...editAsset, name, type, balance: bal, color, currency: cur });
         } else {
-            await addAsset({ id: generateId(), name, type, balance: bal, color });
+            await addAsset({ id: generateId(), name, type, balance: bal, color, currency: cur });
         }
         setShowModal(false);
     };
@@ -139,7 +165,17 @@ export default function Assets() {
 
             {/* Total card */}
             <TouchableOpacity activeOpacity={0.8} onPress={() => setShowAllocation(!showAllocation)} style={[styles.totalCard, { backgroundColor: 'transparent', borderColor: 'transparent' }]}>
-                <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>Total Balance</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>Total Balance</Text>
+                    {hasMixedCurrencies && (
+                        <TouchableOpacity
+                            onPress={(e) => { e.stopPropagation(); setShowBreakdownModal(true); }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />
+                        </TouchableOpacity>
+                    )}
+                </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={[styles.totalAmount, { color: colors.textPrimary }]}>{formatCurrency(totalBalance, currency)}</Text>
                     <Ionicons name={showAllocation ? "chevron-up" : "chevron-down"} size={20} color={colors.textSecondary} style={{ marginTop: 4 }} />
@@ -214,7 +250,7 @@ export default function Assets() {
 
                                 {/* Balance */}
                                 <Text style={[styles.atmCardBalance, { color: a.balance >= 0 ? '#fff' : '#FFB3BA' }]}>
-                                    {formatCurrency(a.balance, currency)}
+                                    {formatCurrency(a.balance, a.currency || currency)}
                                 </Text>
 
                                 {/* Footer: type + actions (visible when selected) */}
@@ -290,8 +326,36 @@ export default function Assets() {
                                     ))}
                                 </View>
 
+                                {/* Account Currency Picker */}
+                                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Account Currency</Text>
+                                <View style={styles.currencyGrid}>
+                                    {(showAllCurrencies ? currencies : getTopCurrencies(currency, assetCurrency)).map(c => (
+                                        <TouchableOpacity
+                                            key={c.code}
+                                            style={[
+                                                styles.currencyOption,
+                                                { backgroundColor: colors.inputBg, borderColor: colors.inputBorder },
+                                                assetCurrency === c.code && [styles.currencyActive, { borderColor: colors.primary, backgroundColor: colors.primaryLight }],
+                                            ]}
+                                            onPress={() => setAssetCurrency(c.code)}
+                                            activeOpacity={0.8}
+                                        >
+                                            <Text style={[styles.currencyCode, { color: colors.textSecondary }, assetCurrency === c.code && [styles.currencyCodeActive, { color: colors.primary }]]}>{c.code}</Text>
+                                            <Text style={[styles.currencySymbol, { color: colors.textMuted }, assetCurrency === c.code && [styles.currencySymbolActive, { color: colors.primary }]]}>{c.symbol}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                    {!showAllCurrencies && (
+                                        <TouchableOpacity
+                                            style={[styles.currencyOption, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
+                                            onPress={() => setShowAllCurrencies(true)}>
+                                            <Ionicons name="ellipsis-horizontal" size={20} color={colors.textSecondary} />
+                                            <Text style={[styles.currencySymbol, { color: colors.textMuted }]}>Other</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+
                                 {/* Balance */}
-                                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Balance ({currency})</Text>
+                                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Balance ({assetCurrency})</Text>
                                 <TextInput
                                     style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
                                     placeholder="0"
@@ -334,7 +398,7 @@ export default function Assets() {
                                         {name || 'Account Name'}
                                     </Text>
                                     <Text style={styles.previewBalance}>
-                                        {formatCurrency(parseFloat(balance) || 0, currency)}
+                                        {formatCurrency(parseFloat(balance) || 0, assetCurrency || currency)}
                                     </Text>
                                     <Text style={styles.previewType}>{getAccountTypeById(type).name}</Text>
                                 </View>
@@ -370,7 +434,7 @@ export default function Assets() {
                                     onPress={() => setFromId(a.id)}
                                 >
                                     <Text style={[styles.accountOptionText, { color: colors.textPrimary }]}>{a.name}</Text>
-                                    <Text style={[styles.accountOptionBal, { color: colors.textSecondary }]}>{formatCurrency(a.balance, currency)}</Text>
+                                    <Text style={[styles.accountOptionBal, { color: colors.textSecondary }]}>{formatCurrency(a.balance, a.currency || currency)}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
@@ -384,7 +448,7 @@ export default function Assets() {
                                     onPress={() => setToId(a.id)}
                                 >
                                     <Text style={[styles.accountOptionText, { color: colors.textPrimary }]}>{a.name}</Text>
-                                    <Text style={[styles.accountOptionBal, { color: colors.textSecondary }]}>{formatCurrency(a.balance, currency)}</Text>
+                                    <Text style={[styles.accountOptionBal, { color: colors.textSecondary }]}>{formatCurrency(a.balance, a.currency || currency)}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
@@ -402,6 +466,69 @@ export default function Assets() {
                         <TouchableOpacity style={[styles.saveBtn, { backgroundColor: colors.primary }]} onPress={handleTransfer}>
                             <Text style={styles.saveBtnText}>Transfer</Text>
                         </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Currency Breakdown Modal */}
+            <Modal visible={showBreakdownModal} transparent animationType="fade">
+                <View style={styles.smOverlay}>
+                    <View style={[styles.smBox, { backgroundColor: colors.card }]}>
+
+                        {/* Header */}
+                        <View style={styles.smHeader}>
+                            <View style={[styles.smIconWrap, { backgroundColor: 'rgba(255,102,0,0.12)' }]}>
+                                <Ionicons name="wallet" size={20} color={colors.primary} />
+                            </View>
+                            <Text style={[styles.smTitle, { color: colors.textPrimary }]}>Balance Breakdown</Text>
+                            <TouchableOpacity
+                                onPress={() => setShowBreakdownModal(false)}
+                                style={[styles.smClose, { backgroundColor: colors.inputBg }]}
+                            >
+                                <Ionicons name="close" size={18} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Per-currency rows */}
+                        {currencyBreakdown.map((item) => (
+                            <View key={item.cur} style={[styles.smRow, { borderColor: colors.border }]}>
+                                <View style={[styles.smCurBadge, { backgroundColor: colors.inputBg }]}>
+                                    <Text style={[styles.smCurCode, { color: colors.primary }]}>{item.cur}</Text>
+                                </View>
+                                <View style={styles.smAmounts}>
+                                    <Text style={[styles.smOriginal, { color: colors.textPrimary }]}>
+                                        {formatCurrency(item.originalTotal, item.cur)}
+                                    </Text>
+                                    {item.cur !== currency && (
+                                        <View style={styles.smConvRow}>
+                                            <Ionicons name="return-down-forward" size={13} color={colors.textMuted} />
+                                            <Text style={[styles.smConverted, { color: colors.textSecondary }]}>
+                                                {formatCurrency(item.convertedTotal, currency)}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+                            </View>
+                        ))}
+
+                        {/* Total */}
+                        <View style={[styles.smTotalRow, { borderTopColor: colors.border }]}>
+                            <Text style={[styles.smTotalLabel, { color: colors.textSecondary }]}>Total in {currency}</Text>
+                            <Text style={[styles.smTotalVal, { color: colors.primary }]}>
+                                {formatCurrency(totalBalance, currency)}
+                            </Text>
+                        </View>
+
+                        {/* Done button */}
+                        <View style={styles.smActions}>
+                            <TouchableOpacity
+                                style={[styles.smDoneBtn, { backgroundColor: colors.primary }]}
+                                onPress={() => setShowBreakdownModal(false)}
+                            >
+                                <Text style={styles.smDoneTxt}>Done</Text>
+                            </TouchableOpacity>
+                        </View>
+
                     </View>
                 </View>
             </Modal>
@@ -493,6 +620,118 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins_800ExtraBold',
         color: Colors.dark.text,
         marginTop: 4,
+    },
+
+    // Multi-currency breakdown chips
+    // Currency breakdown modal (matches transaction history sm* style)
+    smOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: Spacing.lg,
+    },
+    smBox: {
+        width: '100%',
+        borderRadius: 24,
+        padding: Spacing.xl,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.18,
+        shadowRadius: 20,
+        elevation: Platform.OS === 'android' ? 0 : 10,
+    },
+    smHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.md,
+        marginBottom: Spacing.xl,
+    },
+    smIconWrap: {
+        width: 40, height: 40, borderRadius: 12,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    smTitle: {
+        flex: 1,
+        fontSize: FontSize.lg,
+        fontFamily: 'Poppins_700Bold',
+    },
+    smClose: {
+        width: 32, height: 32,
+        borderRadius: 10,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    smRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.md,
+        paddingVertical: Spacing.md,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    smCurBadge: {
+        minWidth: 52,
+        paddingHorizontal: Spacing.sm,
+        paddingVertical: 6,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    smCurCode: {
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_700Bold',
+        letterSpacing: 0.5,
+    },
+    smAmounts: {
+        flex: 1,
+        alignItems: 'flex-end',
+    },
+    smOriginal: {
+        fontSize: FontSize.md,
+        fontFamily: 'Poppins_600SemiBold',
+    },
+    smConvRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginTop: 3,
+    },
+    smConverted: {
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_500Medium',
+    },
+    smTotalRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderTopWidth: 1,
+        marginTop: Spacing.md,
+        paddingTop: Spacing.md,
+        marginBottom: Spacing.xl,
+    },
+    smTotalLabel: {
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_600SemiBold',
+    },
+    smTotalVal: {
+        fontSize: FontSize.xl,
+        fontFamily: 'Poppins_700Bold',
+    },
+    smActions: {
+        flexDirection: 'row',
+        gap: Spacing.md,
+    },
+    smDoneBtn: {
+        flex: 1,
+        paddingVertical: Spacing.md,
+        borderRadius: BorderRadius.full,
+        alignItems: 'center',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.28,
+        shadowRadius: 8,
+    },
+    smDoneTxt: {
+        color: '#fff',
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_700Bold',
     },
 
     // Allocation Chart
@@ -806,4 +1045,14 @@ const styles = StyleSheet.create({
         color: Colors.dark.textMuted,
         fontFamily: 'Poppins_400Regular',
     },
+    currencyGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+    currencyOption: {
+        width: '31%', padding: Spacing.md, borderRadius: BorderRadius.md,
+        borderWidth: 1, alignItems: 'center', justifyContent: 'center'
+    },
+    currencyActive: { borderColor: '#ff6600' },
+    currencyCode: { fontSize: FontSize.sm, fontFamily: 'Poppins_700Bold' },
+    currencyCodeActive: { color: '#ff6600' },
+    currencySymbol: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', marginTop: 1 },
+    currencySymbolActive: { color: '#ff6600' },
 });

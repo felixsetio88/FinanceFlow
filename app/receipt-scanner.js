@@ -49,6 +49,7 @@ import { spendingCategories } from "../utils/categories";
 import { generateId } from "../utils/helpers";
 import { Colors, Spacing, FontSize, BorderRadius } from "../constants/theme";
 import { useTheme } from "../context/ThemeContext";
+import { formatCurrency } from "../utils/currencies";
 
 const FAST_SCAN_STORAGE_KEY = "receipt_fast_scan_enabled";
 
@@ -1167,7 +1168,6 @@ export default function ReceiptScanner() {
                             ]}
                             value={storeName}
                             onChangeText={setStoreName}
-                            scrollEnabled={false}
                             placeholderTextColor={colors.textMuted}
                         />
 
@@ -1185,7 +1185,6 @@ export default function ReceiptScanner() {
                             ]}
                             value={date}
                             onChangeText={setDate}
-                            scrollEnabled={false}
                             placeholder="YYYY-MM-DD"
                             placeholderTextColor={colors.textMuted}
                         />
@@ -1254,8 +1253,6 @@ export default function ReceiptScanner() {
                                     ]}
                                     value={item.name}
                                     onChangeText={(v) => updateItem(i, "name", v)}
-                                    scrollEnabled={false}
-                                    multiline={true}
                                     blurOnSubmit={true}
                                     placeholder="Item"
                                     placeholderTextColor={colors.textMuted}
@@ -1272,8 +1269,6 @@ export default function ReceiptScanner() {
                                     ]}
                                     value={String(item.quantity ?? "1")}
                                     onChangeText={(v) => updateItem(i, "quantity", v)}
-                                    scrollEnabled={false}
-                                    multiline={true}
                                     blurOnSubmit={true}
                                     onBlur={() => normalizeItemField(i, "quantity")}
                                     keyboardType="number-pad"
@@ -1292,8 +1287,6 @@ export default function ReceiptScanner() {
                                     ]}
                                     value={String(item.price ?? "0")}
                                     onChangeText={(v) => updateItem(i, "price", v)}
-                                    scrollEnabled={false}
-                                    multiline={true}
                                     blurOnSubmit={true}
                                     onBlur={() => normalizeItemField(i, "price")}
                                     keyboardType="decimal-pad"
@@ -1387,8 +1380,6 @@ export default function ReceiptScanner() {
                                             ),
                                         );
                                     }}
-                                    scrollEnabled={false}
-                                    multiline={true}
                                     blurOnSubmit={true}
                                     onBlur={() =>
                                         setSubtotal(normalizeEditableAmount(subtotal, "0"))
@@ -1428,8 +1419,6 @@ export default function ReceiptScanner() {
                                             ),
                                         );
                                     }}
-                                    scrollEnabled={false}
-                                    multiline={true}
                                     blurOnSubmit={true}
                                     onBlur={() => setTax(normalizeEditableAmount(tax, "0"))}
                                     keyboardType="decimal-pad"
@@ -1463,8 +1452,6 @@ export default function ReceiptScanner() {
                                             ),
                                         );
                                     }}
-                                    scrollEnabled={false}
-                                    multiline={true}
                                     blurOnSubmit={true}
                                     onBlur={() =>
                                         setServiceCharge(
@@ -1494,8 +1481,6 @@ export default function ReceiptScanner() {
                                 ]}
                                 value={total}
                                 onChangeText={setTotal}
-                                scrollEnabled={false}
-                                multiline={true}
                                 blurOnSubmit={true}
                                 onBlur={() => setTotal(normalizeEditableAmount(total, "0"))}
                                 keyboardType="decimal-pad"
@@ -1597,18 +1582,35 @@ export default function ReceiptScanner() {
                                                         : colors.textMuted
                                                 }
                                             />
-                                            <Text
-                                                style={[
-                                                    styles.paymentChipText,
-                                                    { color: colors.textSecondary },
-                                                    selectedAssetId === a.id && [
-                                                        styles.paymentChipTextActive,
-                                                        { color: colors.primary },
-                                                    ],
-                                                ]}
-                                            >
-                                                {a.name}
-                                            </Text>
+                                            <View>
+                                                <Text
+                                                    style={[
+                                                        styles.paymentChipText,
+                                                        { color: colors.textSecondary },
+                                                        selectedAssetId === a.id && [
+                                                            styles.paymentChipTextActive,
+                                                            { color: colors.primary },
+                                                        ],
+                                                    ]}
+                                                    numberOfLines={1}
+                                                >
+                                                    {a.name}
+                                                </Text>
+                                                <Text
+                                                    style={[
+                                                        styles.paymentChipText,
+                                                        {
+                                                            color: colors.textMuted,
+                                                            fontSize: FontSize.xs,
+                                                            fontFamily: 'Poppins_400Regular',
+                                                        },
+                                                        selectedAssetId === a.id && { color: colors.primary },
+                                                    ]}
+                                                    numberOfLines={1}
+                                                >
+                                                    {formatCurrency(a.balance, a.currency)}
+                                                </Text>
+                                            </View>
                                         </TouchableOpacity>
                                     ))}
                                 </View>

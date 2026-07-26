@@ -6,6 +6,7 @@ import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as db from './database';
+import { getOrFetchRates, convertCurrency } from './exchangeRates';
 import { generateId } from '../utils/helpers';
 
 function normalizeSavingHistory(goal) {
@@ -110,10 +111,13 @@ export async function exportToExcel(options = {}) {
         });
     }
 
+    const baseCurrency = data.settings?.currency || 'USD';
+    const exchangeRates = await getOrFetchRates(baseCurrency);
+
     // --- Generate Summary Dashboard Data ---
     const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
     const totalExpense = transactions.filter(t => t.type === 'spending').reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-    
+
     const categoryTotals = {};
     transactions.filter(t => t.type === 'spending').forEach(t => {
         categoryTotals[t.category] = (categoryTotals[t.category] || 0) + Math.abs(t.amount || 0);
@@ -150,7 +154,10 @@ export async function exportToExcel(options = {}) {
             Category: t.category,
             Description: t.description || '',
             'Payment Method': paymentMethodDisplay,
-            Currency: t.currency || 'USD',
+            Currency: t.currency || baseCurrency,
+            'Converted Amount': convertCurrency(t.amount, t.currency || baseCurrency, baseCurrency, exchangeRates),
+            'Base Currency': baseCurrency,
+            'Exchange Rate': (exchangeRates?.rates && exchangeRates.rates[t.currency || baseCurrency]) ? (1 / exchangeRates.rates[t.currency || baseCurrency]) : 1,
             'Created At': t.createdAt || '',
             'Asset Id': t.assetId || '',
             'From Asset Id': t.fromAssetId || '',
@@ -180,7 +187,9 @@ export async function exportToExcel(options = {}) {
         Period: b.period,
         Amount: b.amount,
         Category: b.category || 'all',
-        Currency: b.currency || 'USD',
+        Currency: b.currency || baseCurrency,
+        'Converted Amount': convertCurrency(b.amount, b.currency || baseCurrency, baseCurrency, exchangeRates),
+        'Base Currency': baseCurrency,
         'Created At': b.createdAt || '',
     }));
 
@@ -191,7 +200,9 @@ export async function exportToExcel(options = {}) {
         Type: a.type,
         Balance: a.balance,
         Color: a.color || '',
-        Currency: a.currency || 'USD',
+        Currency: a.currency || baseCurrency,
+        'Converted Balance': convertCurrency(a.balance, a.currency || baseCurrency, baseCurrency, exchangeRates),
+        'Base Currency': baseCurrency,
         'Created At': a.createdAt || '',
     }));
 
@@ -206,7 +217,10 @@ export async function exportToExcel(options = {}) {
         Commitment: g.commitment || '',
         'Notify Enabled': g.notifyEnabled ? 'true' : 'false',
         'Is Completed': g.isCompleted ? 'true' : 'false',
-        Currency: g.currency || 'USD',
+        Currency: g.currency || baseCurrency,
+        'Converted Target': convertCurrency(g.targetAmount, g.currency || baseCurrency, baseCurrency, exchangeRates),
+        'Converted Current': convertCurrency(g.currentAmount, g.currency || baseCurrency, baseCurrency, exchangeRates),
+        'Base Currency': baseCurrency,
         'Created At': g.createdAt || '',
     }));
 

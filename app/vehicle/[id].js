@@ -12,6 +12,13 @@ import { useTheme } from '../../context/ThemeContext';
 import { formatCurrency } from '../../utils/currencies';
 import { Spacing, FontSize, BorderRadius } from '../../constants/theme';
 
+function formatTime(seconds) {
+    if (!seconds) return '—';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 export default function VehicleDashboard() {
     const { id } = useLocalSearchParams();
     const router = useRouter();
@@ -199,6 +206,48 @@ export default function VehicleDashboard() {
                     </View>
                 </View>
 
+                {/* ── OBD Saved Trip Data ── */}
+                {(vehicle.totalDistance > 0 || vehicle.totalDrivingTime > 0) && (
+                    <View style={[s.obdSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <View style={s.obdSectionHeader}>
+                            <View style={[s.obdSectionIcon, { backgroundColor: `${colors.primary}15` }]}>
+                                <Ionicons name="bluetooth" size={14} color={colors.primary} />
+                            </View>
+                            <Text style={[s.obdSectionTitle, { color: textPrimary }]}>OBD Trip History</Text>
+                            <Text style={[s.obdSectionSub, { color: textSec }]}>Saved from last session</Text>
+                        </View>
+                        <View style={s.obdGrid}>
+                            <View style={s.obdItem}>
+                                <Text style={[s.obdVal, { color: textPrimary }]}>
+                                    {vehicle.totalDistance ? vehicle.totalDistance.toFixed(1) : '0'}
+                                </Text>
+                                <Text style={[s.obdUnit, { color: colors.primary }]}>km</Text>
+                                <Text style={[s.obdLbl, { color: textSec }]}>Trip Distance</Text>
+                            </View>
+                            <View style={[s.obdDivider, { backgroundColor: colors.border }]} />
+                            <View style={s.obdItem}>
+                                <Text style={[s.obdVal, { color: textPrimary }]}>
+                                    {formatTime(vehicle.totalDrivingTime)}
+                                </Text>
+                                <Text style={[s.obdUnit, { color: '#F59E0B' }]}>hrs</Text>
+                                <Text style={[s.obdLbl, { color: textSec }]}>Drive Time</Text>
+                            </View>
+                            {vehicle.totalFuelConsumed > 0 && (
+                                <>
+                                    <View style={[s.obdDivider, { backgroundColor: colors.border }]} />
+                                    <View style={s.obdItem}>
+                                        <Text style={[s.obdVal, { color: textPrimary }]}>
+                                            {vehicle.totalFuelConsumed.toFixed(2)}
+                                        </Text>
+                                        <Text style={[s.obdUnit, { color: '#10B981' }]}>L</Text>
+                                        <Text style={[s.obdLbl, { color: textSec }]}>Fuel Used</Text>
+                                    </View>
+                                </>
+                            )}
+                        </View>
+                    </View>
+                )}
+
                 {/* Filter chips */}
                 <View style={s.sortRow}>
                     <Text style={[s.sortLabel, { color: colors.textSecondary }]}>Filter:</Text>
@@ -261,7 +310,7 @@ export default function VehicleDashboard() {
                                 <TouchableOpacity
                                     key={tx.id}
                                     activeOpacity={0.85}
-                                    style={[s.txCard, { backgroundColor: cardBg, borderColor: border }]}
+                                    style={[s.txCard, { backgroundColor: cardBg }]}
                                     onPress={() => setExpandedId(expanded ? null : tx.id)}
                                 >
                                     {/* Card top row */}
@@ -487,10 +536,8 @@ const s = StyleSheet.create({
 
     // Transaction card
     txCard: {
-        borderRadius: 18, borderWidth: 1, marginBottom: Spacing.md,
+        borderRadius: 18, marginBottom: Spacing.md,
         overflow: 'hidden',
-        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05, shadowRadius: 8, elevation: Platform.OS === 'android' ? 0 : 2,
     },
     txTop: { flexDirection: 'row', alignItems: 'center', padding: Spacing.md },
     txIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
@@ -583,5 +630,40 @@ const s = StyleSheet.create({
         fontSize: FontSize.sm,
         fontFamily: 'Poppins_600SemiBold',
         color: '#dc2626',
+    },
+    // OBD section
+    obdSection: {
+        borderRadius: 16, borderWidth: 1, padding: Spacing.md,
+        marginBottom: Spacing.md,
+    },
+    obdSectionHeader: {
+        flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing.md,
+    },
+    obdSectionIcon: {
+        width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+    },
+    obdSectionTitle: {
+        fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm, flex: 1,
+    },
+    obdSectionSub: {
+        fontFamily: 'Poppins_400Regular', fontSize: 11,
+    },
+    obdGrid: {
+        flexDirection: 'row', alignItems: 'center',
+    },
+    obdItem: {
+        flex: 1, alignItems: 'center',
+    },
+    obdVal: {
+        fontFamily: 'Poppins_700Bold', fontSize: FontSize.lg,
+    },
+    obdUnit: {
+        fontFamily: 'Poppins_600SemiBold', fontSize: 11, marginTop: -2,
+    },
+    obdLbl: {
+        fontFamily: 'Poppins_400Regular', fontSize: 11, textAlign: 'center', marginTop: 2,
+    },
+    obdDivider: {
+        width: 1, height: 40, opacity: 0.5,
     },
 });

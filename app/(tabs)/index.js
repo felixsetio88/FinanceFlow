@@ -18,7 +18,7 @@ function getCardColor(asset, index) {
 
 export default function Dashboard() {
     const router = useRouter();
-    const { transactions, budgets, assets, savingsGoals, currency, loading, currentDateKey, deleteTransaction, updateAsset } = useApp();
+    const { transactions, budgets, assets, savingsGoals, currency, loading, currentDateKey, deleteTransaction, updateAsset, exchangeRates, convertCurrency } = useApp();
     const { colors, isDark } = useTheme();
     const [showBalance, setShowBalance] = useState(true);
     const [showMore, setShowMore] = useState(false);
@@ -32,17 +32,17 @@ export default function Dashboard() {
     );
     const hasMixedAssetCurrencies = assetCurrencies.length > 1;
     const totalAssetValue = useMemo(
-        () => assets.reduce((sum, a) => sum + (a.balance || 0), 0),
-        [assets]
+        () => assets.reduce((sum, a) => sum + convertCurrency(a.balance || 0, a.currency || currency, currency, exchangeRates), 0),
+        [assets, currency, exchangeRates]
     );
     const monthlyTx = useMemo(() => filterTransactionsByPeriod(transactions, 'monthly'), [transactions, currentDateKey]);
     const todayTx = useMemo(() => filterTransactionsByPeriod(transactions, 'daily'), [transactions, currentDateKey]);
 
-    const totalIncome = monthlyTx.filter(t => t.type === 'income').reduce((s, t) => s + Math.abs(t.amount || 0), 0);
-    const totalSpending = monthlyTx.filter(t => t.type === 'spending').reduce((s, t) => s + Math.abs(t.amount || 0), 0);
+    const totalIncome = monthlyTx.filter(t => t.type === 'income').reduce((s, t) => s + Math.abs(convertCurrency(t.amount || 0, t.currency || currency, currency, exchangeRates)), 0);
+    const totalSpending = monthlyTx.filter(t => t.type === 'spending').reduce((s, t) => s + Math.abs(convertCurrency(t.amount || 0, t.currency || currency, currency, exchangeRates)), 0);
     const balance = totalIncome - totalSpending;
-    const todayIncome = todayTx.filter(t => t.type === 'income').reduce((s, t) => s + Math.abs(t.amount || 0), 0);
-    const todaySpending = todayTx.filter(t => t.type === 'spending').reduce((s, t) => s + Math.abs(t.amount || 0), 0);
+    const todayIncome = todayTx.filter(t => t.type === 'income').reduce((s, t) => s + Math.abs(convertCurrency(t.amount || 0, t.currency || currency, currency, exchangeRates)), 0);
+    const todaySpending = todayTx.filter(t => t.type === 'spending').reduce((s, t) => s + Math.abs(convertCurrency(t.amount || 0, t.currency || currency, currency, exchangeRates)), 0);
 
     const activeBudget = budgets[0] || null;
     let dailyBudget = 0;
@@ -56,7 +56,7 @@ export default function Dashboard() {
     const displayedAssets = assets.slice(0, 3);
     const showMoreAssetsBtn = assets.length > 5;
     const recentTransactions = transactions.slice(0, 6);
-    const topCategories = Object.entries(groupByCategory(monthlyTx.filter(t => t.type === 'spending')))
+    const topCategories = Object.entries(groupByCategory(monthlyTx.filter(t => t.type === 'spending'), (t) => convertCurrency(t.amount, t.currency || currency, currency, exchangeRates)))
         .map(([id, data]) => ({ ...getCategoryById(id), total: data.total }))
         .sort((a, b) => b.total - a.total).slice(0, 6);
     const savingsRecommendations = useMemo(() => getSavingReminderRecommendations(savingsGoals).slice(0, 3), [savingsGoals]);
@@ -184,14 +184,14 @@ export default function Dashboard() {
                     <TouchableOpacity style={styles.heroValueRow} onPress={() => setShowBalance(v => !v)} activeOpacity={0.75}>
                         <Text style={[styles.heroValue, { color: textPrimary }]}>
                             {showBalance
-                                ? hasMixedAssetCurrencies ? 'Multiple currencies' : formatCurrency(totalAssetValue, currency)
+                                ? formatCurrency(totalAssetValue, currency)
                                 : '••••••'}
                         </Text>
                         <Ionicons name={showBalance ? 'eye-outline' : 'eye-off-outline'} size={22} color={textMuted} />
                     </TouchableOpacity>
-                    {hasMixedAssetCurrencies && (
-                        <Text style={[styles.currencyWarning, { color: '#B45309' }]}>
-                            Asset total hidden because accounts use {assetCurrencies.join(', ')}.
+                    {hasMixedAssetCurrencies && showBalance && (
+                        <Text style={[styles.currencyWarning, { color: textMuted }]}>
+                            Converted to {currency} · accounts in {assetCurrencies.join(', ')}
                         </Text>
                     )}
                     <Text style={[styles.budgetSignal, { color: dailyBudgetRemaining >= 0 ? '#0d9488' : '#dc2626' }]}>
@@ -341,10 +341,14 @@ export default function Dashboard() {
                                 const income = tx.type === 'income';
                                 const expanded = expandedTxId === tx.id;
                                 const amtColor = tx.type === 'move' ? '#6A6FF8' : income ? '#059669' : '#dc2626';
+                                const txOriginalCur = tx.currency || currency;
+                                const originalAmt = formatCurrency(Math.abs(tx.amount), txOriginalCur);
+                                const hasDiffCurrency = txOriginalCur !== currency;
+                                const baseAmt = hasDiffCurrency ? formatCurrency(Math.abs(convertCurrency(tx.amount, txOriginalCur, currency, exchangeRates)), currency) : null;
                                 return (
                                     <TouchableOpacity
                                         key={tx.id}
-                                        style={[styles.txCard, { backgroundColor: cardBg, borderColor: border }]}
+                                        style={[styles.txCard, { backgroundColor: cardBg }]}
                                         onPress={() => setExpandedTxId(expanded ? null : tx.id)}
                                         activeOpacity={0.82}
                                     >
@@ -356,9 +360,16 @@ export default function Dashboard() {
                                                 <Text style={[styles.txName, { color: textPrimary }]} numberOfLines={1}>{tx.description || cat.name}</Text>
                                                 <Text style={[styles.txMeta, { color: textMuted }]}>{cat.name} · {formatTime(tx.date)}</Text>
                                             </View>
-                                            <Text style={[styles.txAmount, { color: amtColor }]}>
-                                                {tx.type === 'move' ? '⇄ ' : income ? '+' : '-'}{formatCurrency(Math.abs(tx.amount), currency)}
-                                            </Text>
+                                            <View style={{ alignItems: 'flex-end' }}>
+                                                <Text style={[styles.txAmount, { color: amtColor }]}>
+                                                    {tx.type === 'move' ? '⇄ ' : income ? '+' : '-'}{originalAmt}
+                                                </Text>
+                                                {hasDiffCurrency && (
+                                                    <Text style={{ fontSize: 11, color: textMuted, marginTop: 2 }}>
+                                                        {baseAmt}
+                                                    </Text>
+                                                )}
+                                            </View>
                                         </View>
                                         {expanded && (
                                             <View style={styles.txExpanded}>
@@ -386,7 +397,7 @@ export default function Dashboard() {
                         topCategories.length === 0
                             ? <View style={styles.emptyList}><Text style={[styles.emptyListTxt, { color: textMuted }]}>No category spending yet</Text></View>
                             : topCategories.map(cat => (
-                                <View key={cat.id} style={[styles.txCard, { backgroundColor: cardBg, borderColor: border }]}>
+                                <View key={cat.id} style={[styles.txCard, { backgroundColor: cardBg }]}>
                                     <View style={styles.txMain}>
                                         <View style={[styles.txIcon, { backgroundColor: `${cat.color}18` }]}><Ionicons name={cat.icon} size={20} color={cat.color} /></View>
                                         <View style={styles.txInfo}>
@@ -476,10 +487,8 @@ const styles = StyleSheet.create({
     segmentTxt: { fontSize: FontSize.sm, fontFamily: 'Poppins_500Medium' },
     listWrap: { gap: Spacing.sm },
     txCard: {
-        borderRadius: BorderRadius.lg, borderWidth: 1,
+        borderRadius: BorderRadius.lg,
         backgroundColor: '#fff', overflow: 'hidden',
-        shadowColor: '#1A1040', shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05, shadowRadius: 6, elevation: Platform.OS === 'android' ? 0 : 2,
     },
     txMain: { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, gap: Spacing.md },
     txIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },

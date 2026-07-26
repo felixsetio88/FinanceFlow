@@ -68,13 +68,14 @@ function DatePickerModal({ visible, value, onConfirm, onClose, colors }) {
 export default function Transactions() {
     const router = useRouter();
     const { colors, isDark } = useTheme();
-    const { transactions, assets, currency, deleteTransaction, updateAsset } = useApp();
+    const { transactions, assets, currency, deleteTransaction, updateAsset, exchangeRates, convertCurrency } = useApp();
     const [period, setPeriod] = useState('daily');
     const [sortBy, setSortBy] = useState('newest');
     const [refDate, setRefDate] = useState(new Date());
     const [search, setSearch] = useState('');
     const [expandedId, setExpandedId] = useState(null);
     const [showDateModal, setShowDateModal] = useState(false);
+    const [showSummaryModal, setShowSummaryModal] = useState(null); // 'income' | 'spending' | null
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
     const navigate = (direction) => {
@@ -138,11 +139,11 @@ export default function Transactions() {
 
     const totalIncome = filtered
         .filter((t) => t.type === 'income')
-        .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+        .reduce((sum, t) => sum + Math.abs(convertCurrency(t.amount, t.currency || currency, currency, exchangeRates)), 0);
 
     const totalSpending = filtered
         .filter((t) => t.type === 'spending')
-        .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+        .reduce((sum, t) => sum + Math.abs(convertCurrency(t.amount, t.currency || currency, currency, exchangeRates)), 0);
 
     const confirmDelete = (transaction) => {
         if (transaction.type === 'move' && transaction.fromAssetId && transaction.toAssetId) {
@@ -209,6 +210,21 @@ export default function Transactions() {
             ]);
         }
     };
+
+    const getCurrencyBreakdown = (type) => {
+        const txs = filtered.filter(t => t.type === type);
+        const breakdown = {};
+        txs.forEach(t => {
+            const txCur = t.currency || currency;
+            if (!breakdown[txCur]) breakdown[txCur] = { originalTotal: 0, convertedTotal: 0 };
+            breakdown[txCur].originalTotal += Math.abs(t.amount);
+            breakdown[txCur].convertedTotal += Math.abs(convertCurrency(t.amount, txCur, currency, exchangeRates));
+        });
+        return Object.entries(breakdown).map(([cur, data]) => ({ cur, ...data })).sort((a, b) => b.convertedTotal - a.convertedTotal);
+    };
+
+    const summaryBreakdown = showSummaryModal ? getCurrencyBreakdown(showSummaryModal) : [];
+    const summaryTotal = summaryBreakdown.reduce((sum, item) => sum + item.convertedTotal, 0);
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -277,15 +293,21 @@ export default function Transactions() {
 
             {/* Totals Card */}
             <View style={[styles.totalsCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: isDark ? '#000' : '#1A1040' }]}>
-                <View style={styles.totalItem}>
+                <TouchableOpacity style={styles.totalItem} onPress={() => setShowSummaryModal('income')} activeOpacity={0.7}>
                     <Text style={styles.totalAmountIncome}>+{formatCurrency(totalIncome, currency)}</Text>
-                    <Text style={styles.totalLabel}>Income</Text>
-                </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={styles.totalLabel}>Income</Text>
+                        <Ionicons name="information-circle-outline" size={14} color={colors.textMuted} />
+                    </View>
+                </TouchableOpacity>
                 <View style={styles.totalDivider} />
-                <View style={styles.totalItem}>
+                <TouchableOpacity style={styles.totalItem} onPress={() => setShowSummaryModal('spending')} activeOpacity={0.7}>
                     <Text style={styles.totalAmountSpending}>-{formatCurrency(totalSpending, currency)}</Text>
-                    <Text style={styles.totalLabel}>Spending</Text>
-                </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={styles.totalLabel}>Spending</Text>
+                        <Ionicons name="information-circle-outline" size={14} color={colors.textMuted} />
+                    </View>
+                </TouchableOpacity>
             </View>
 
             {/* Search */}
@@ -361,10 +383,14 @@ export default function Transactions() {
                         const isIncome = transaction.type === 'income';
                         const expanded = expandedId === transaction.id;
                         const asset = transaction.assetId ? assets.find(a => a.id === transaction.assetId) : null;
+                        const txOriginalCur = transaction.currency || currency;
+                        const originalAmt = formatCurrency(Math.abs(transaction.amount), txOriginalCur);
+                        const hasDiffCur = txOriginalCur !== currency;
+                        const baseAmt = hasDiffCur ? formatCurrency(Math.abs(convertCurrency(transaction.amount, txOriginalCur, currency, exchangeRates)), currency) : null;
 
                         return (
                             <TouchableOpacity
-                                style={[styles.txCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: isDark ? '#000' : '#1A1040' }]}
+                                style={[styles.txCard, { backgroundColor: colors.card }]}
                                 onPress={() => setExpandedId(expanded ? null : transaction.id)}
                                 activeOpacity={0.82}
                             >
@@ -378,11 +404,18 @@ export default function Transactions() {
                                         </Text>
                                         <Text style={[styles.txMeta, { color: colors.textSecondary }]}>{category.name} · {formatTime(transaction.date)}</Text>
                                     </View>
-                                    <Text style={[styles.txAmount, {
-                                        color: isMove ? colors.blue : isIncome ? colors.emerald : colors.rose
-                                    }]}>
-                                        {isMove ? '⇄ ' : isIncome ? '+' : '-'}{formatCurrency(Math.abs(transaction.amount), currency)}
-                                    </Text>
+                                    <View style={{ alignItems: 'flex-end' }}>
+                                        <Text style={[styles.txAmount, {
+                                            color: isMove ? colors.blue : isIncome ? colors.emerald : colors.rose
+                                        }]}>
+                                            {isMove ? '⇄ ' : isIncome ? '+' : '-'}{originalAmt}
+                                        </Text>
+                                        {hasDiffCur && (
+                                            <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                                                {baseAmt}
+                                            </Text>
+                                        )}
+                                    </View>
                                 </View>
 
                                 {expanded && (
@@ -432,6 +465,84 @@ export default function Transactions() {
                 onClose={() => setShowDateModal(false)}
                 colors={colors}
             />
+
+            {/* Summary Breakdown Modal */}
+            <Modal visible={!!showSummaryModal} transparent animationType="fade">
+                <View style={styles.smOverlay}>
+                    <View style={[styles.smBox, { backgroundColor: colors.card }]}>
+
+                        {/* Header — matches vehicle modal */}
+                        <View style={styles.smHeader}>
+                            <View style={[styles.smIconWrap, {
+                                backgroundColor: showSummaryModal === 'income' ? 'rgba(5,150,105,0.12)' : 'rgba(220,38,38,0.12)'
+                            }]}>
+                                <Ionicons
+                                    name={showSummaryModal === 'income' ? 'trending-up' : 'trending-down'}
+                                    size={20}
+                                    color={showSummaryModal === 'income' ? colors.emerald : colors.rose}
+                                />
+                            </View>
+                            <Text style={[styles.smTitle, { color: colors.textPrimary }]}>
+                                {showSummaryModal === 'income' ? 'Income' : 'Spending'} Breakdown
+                            </Text>
+                            <TouchableOpacity
+                                onPress={() => setShowSummaryModal(null)}
+                                style={[styles.smClose, { backgroundColor: colors.inputBg }]}
+                            >
+                                <Ionicons name="close" size={18} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Per-currency rows */}
+                        {summaryBreakdown.map((item) => (
+                            <View key={item.cur} style={[styles.smRow, { borderColor: colors.border }]}>
+                                {/* Currency badge */}
+                                <View style={[styles.smCurBadge, { backgroundColor: colors.inputBg }]}>
+                                    <Text style={[styles.smCurCode, { color: colors.textPrimary }]}>{item.cur}</Text>
+                                </View>
+
+                                {/* Amounts */}
+                                <View style={styles.smAmounts}>
+                                    <Text style={[styles.smOriginal, { color: colors.textPrimary }]}>
+                                        {formatCurrency(item.originalTotal, item.cur)}
+                                    </Text>
+                                    {item.cur !== currency && (
+                                        <View style={styles.smConvRow}>
+                                            <Ionicons name="return-down-forward" size={13} color={colors.textMuted} />
+                                            <Text style={[styles.smConverted, {
+                                                color: showSummaryModal === 'income' ? colors.emerald : colors.rose
+                                            }]}>
+                                                {formatCurrency(item.convertedTotal, currency)}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+                            </View>
+                        ))}
+
+                        {/* Total row */}
+                        <View style={[styles.smTotalRow, { borderTopColor: colors.border }]}>
+                            <Text style={[styles.smTotalLabel, { color: colors.textSecondary }]}>Total in {currency}</Text>
+                            <Text style={[styles.smTotalVal, {
+                                color: showSummaryModal === 'income' ? colors.emerald : colors.rose
+                            }]}>
+                                {formatCurrency(summaryTotal, currency)}
+                            </Text>
+                        </View>
+
+                        {/* Close button */}
+                        <View style={styles.smActions}>
+                            <TouchableOpacity
+                                style={[styles.smDoneBtn, { backgroundColor: colors.primary }]}
+                                onPress={() => setShowSummaryModal(null)}
+                            >
+                                <Text style={styles.smDoneTxt}>Done</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -650,13 +761,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.88)',
         borderRadius: BorderRadius.lg,
         marginBottom: Spacing.sm,
-        borderWidth: 1,
-        borderColor: 'rgba(255,102,0,0.07)',
         overflow: 'hidden',
-        shadowColor: '#1A1040',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 6,
         elevation: Platform.OS === 'android' ? 0 : 2,
     },
     txMain: {
@@ -805,4 +910,129 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins_700Bold',
         fontSize: FontSize.md,
     },
+    // Summary Breakdown Modal — styled like vehicle modal
+    smOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: Spacing.lg,
+    },
+    smBox: {
+        width: '100%',
+        borderRadius: 24,
+        padding: Spacing.xl,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.18,
+        shadowRadius: 20,
+        elevation: Platform.OS === 'android' ? 0 : 10,
+    },
+    smHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.md,
+        marginBottom: Spacing.xl,
+    },
+    smIconWrap: {
+        width: 40, height: 40, borderRadius: 12,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    smTitle: {
+        flex: 1,
+        fontSize: FontSize.lg,
+        fontFamily: 'Poppins_700Bold',
+    },
+    smClose: {
+        width: 32, height: 32,
+        borderRadius: 10,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    smRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.md,
+        paddingVertical: Spacing.md,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    smCurBadge: {
+        minWidth: 52,
+        paddingHorizontal: Spacing.sm,
+        paddingVertical: 6,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    smCurCode: {
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_700Bold',
+        letterSpacing: 0.5,
+    },
+    smAmounts: {
+        flex: 1,
+        alignItems: 'flex-end',
+    },
+    smOriginal: {
+        fontSize: FontSize.md,
+        fontFamily: 'Poppins_600SemiBold',
+    },
+    smConvRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginTop: 3,
+    },
+    smConverted: {
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_500Medium',
+    },
+    smTotalRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderTopWidth: 1,
+        marginTop: Spacing.md,
+        paddingTop: Spacing.md,
+        marginBottom: Spacing.xl,
+    },
+    smTotalLabel: {
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_600SemiBold',
+    },
+    smTotalVal: {
+        fontSize: FontSize.xl,
+        fontFamily: 'Poppins_700Bold',
+    },
+    smActions: {
+        flexDirection: 'row',
+        gap: Spacing.md,
+    },
+    smDoneBtn: {
+        flex: 1,
+        paddingVertical: Spacing.md,
+        borderRadius: BorderRadius.full,
+        alignItems: 'center',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.28,
+        shadowRadius: 8,
+    },
+    smDoneTxt: {
+        color: '#fff',
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_700Bold',
+    },
+    summaryModalBox: { width: '90%', maxWidth: 400, borderRadius: BorderRadius.xl, borderWidth: 1, overflow: 'hidden' },
+    summaryModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, borderBottomWidth: 1, borderBottomColor: 'rgba(150,150,150,0.1)' },
+    summaryModalTitle: { fontSize: FontSize.lg, fontFamily: 'Poppins_600SemiBold' },
+    summaryModalContent: { padding: Spacing.lg },
+    summaryModalDesc: { fontSize: FontSize.sm, fontFamily: 'Poppins_400Regular', marginBottom: Spacing.lg },
+    breakdownList: { gap: Spacing.md, marginBottom: Spacing.xl },
+    breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+    breakdownCur: { fontSize: FontSize.md, fontFamily: 'Poppins_600SemiBold' },
+    breakdownValues: { alignItems: 'flex-end' },
+    breakdownOriginal: { fontSize: FontSize.md, fontFamily: 'Poppins_500Medium' },
+    conversionRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+    breakdownConverted: { fontSize: FontSize.sm, fontFamily: 'Poppins_600SemiBold' },
+    breakdownTotal: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, paddingTop: Spacing.md },
+    breakdownTotalLabel: { fontSize: FontSize.md, fontFamily: 'Poppins_600SemiBold' },
+    breakdownTotalVal: { fontSize: FontSize.lg, fontFamily: 'Poppins_700Bold' },
 });

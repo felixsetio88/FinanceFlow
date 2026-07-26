@@ -125,6 +125,11 @@ export default function AddTransaction() {
     const [fromAssetId, setFromAssetId] = useState('');
     const [toAssetId, setToAssetId] = useState('');
 
+    // The effective currency for this transaction — uses the selected asset's currency, falls back to global
+    const txCurrency = type === 'move'
+        ? ((fromAssetId && assets.find(a => a.id === fromAssetId)?.currency) || currency)
+        : ((assetId && assets.find(a => a.id === assetId)?.currency) || currency);
+
     const [items, setItems] = useState([]);
     const [itemName, setItemName] = useState('');
     const [itemPrice, setItemPrice] = useState('');
@@ -254,7 +259,7 @@ export default function AddTransaction() {
             vehicleOdometer: category === 'transport' ? parseFloat(vehicleOdometer || 0) : null,
             vehicleVolume: category === 'transport' && vehicleLogType === 'refuel' ? parseFloat(vehicleVolume || 0) : null,
             vehicleMaintenanceItems: category === 'transport' && vehicleLogType === 'maintenance' ? vehicleMaintenanceItems : null,
-            currency,
+            currency: txCurrency,
         };
 
         if (isEditing) {
@@ -351,7 +356,7 @@ export default function AddTransaction() {
             assetId: null, fromAssetId, toAssetId,
             tax: 0, taxIsPercent: false, taxEnabled: false,
             serviceFee: 0, serviceFeeIsPercent: false, serviceFeeEnabled: false,
-            tip: 0, tipIsPercent: false, tipEnabled: false, currency,
+            tip: 0, tipIsPercent: false, tipEnabled: false, currency: txCurrency,
         };
         if (isEditing) { await updateTransaction(moveTx); } else { await addTransaction(moveTx); }
         router.back();
@@ -375,7 +380,7 @@ export default function AddTransaction() {
                             <Ionicons name={at.icon} size={16} color={sel ? '#fff' : colors.primary} />
                             <View>
                                 <Text style={[s.acName, { color: colors.textPrimary }, sel && { color: '#fff' }]}>{a.name}</Text>
-                                <Text style={[s.acBal, { color: colors.textSecondary }, sel && { color: 'rgba(255,255,255,0.7)' }]}>{formatCurrency(a.balance, currency)}</Text>
+                                <Text style={[s.acBal, { color: colors.textSecondary }, sel && { color: 'rgba(255,255,255,0.7)' }]}>{formatCurrency(a.balance, a.currency || currency)}</Text>
                             </View>
                         </TouchableOpacity>
                     );
@@ -434,7 +439,7 @@ export default function AddTransaction() {
                 {/* MOVE */}
                 {type === 'move' && (
                     <>
-                        <Text style={[s.label, { color: colors.textSecondary }]}>Amount ({currency})</Text>
+                        <Text style={[s.label, { color: colors.textSecondary }]}>Amount ({txCurrency})</Text>
                         <TextInput style={[s.amtInput, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }]} placeholder="0" placeholderTextColor={colors.textMuted} value={amount} onChangeText={setAmount} keyboardType="numeric" />
                         {assets.length >= 2 ? (
                             <>
@@ -455,7 +460,7 @@ export default function AddTransaction() {
                 {/* INCOME / SPENDING */}
                 {type !== 'move' && (
                     <>
-                        <Text style={[s.label, { color: colors.textSecondary }]}>Amount ({currency})</Text>
+                        <Text style={[s.label, { color: colors.textSecondary }]}>Amount ({txCurrency})</Text>
                         <TextInput style={[s.amtInput, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }]} placeholder="0.00" placeholderTextColor={colors.textMuted} value={amount} onChangeText={setAmount} keyboardType="numeric" />
 
                         {recommendations.length > 0 && (
@@ -627,7 +632,7 @@ export default function AddTransaction() {
                                                 <TouchableOpacity onPress={() => updateItemQty(i, item.quantity + 1)} style={[s.qtyBtn, { backgroundColor: colors.inputBg }]}>
                                                     <Ionicons name="add" size={14} color={colors.primary} />
                                                 </TouchableOpacity>
-                                                <Text style={[s.itemPrice, { color: colors.textSecondary }]}>× {formatCurrency(item.price, currency)} = {formatCurrency(item.price * item.quantity, currency)}</Text>
+                                                <Text style={[s.itemPrice, { color: colors.textSecondary }]}>× {formatCurrency(item.price, txCurrency)} = {formatCurrency(item.price * item.quantity, txCurrency)}</Text>
                                             </View>
                                         </View>
                                         <TouchableOpacity onPress={() => removeItem(i)} style={[s.removeItemBtn, { backgroundColor: isDark ? 'rgba(220,38,38,0.33)' : 'rgba(220,38,38,0.08)' }]}>
@@ -656,13 +661,13 @@ export default function AddTransaction() {
                                 </View>
                                 {(taxEnabled || serviceFeeEnabled || tipEnabled) && (
                                     <View style={[s.breakdown, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                                        <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Subtotal</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(base, currency)}</Text></View>
-                                        {taxEnabled && <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Tax ({taxIsPercent ? taxValue + '%' : formatCurrency(parseFloat(taxValue) || 0, currency)})</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(taxAmt, currency)}</Text></View>}
-                                        {serviceFeeEnabled && <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Service Fee</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(feeAmt, currency)}</Text></View>}
-                                        {tipEnabled && <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Tip ({tipIsPercent ? tipValue + '%' : formatCurrency(parseFloat(tipValue) || 0, currency)})</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(tipAmt, currency)}</Text></View>}
+                                        <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Subtotal</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(base, txCurrency)}</Text></View>
+                                        {taxEnabled && <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Tax ({taxIsPercent ? taxValue + '%' : formatCurrency(parseFloat(taxValue) || 0, txCurrency)})</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(taxAmt, txCurrency)}</Text></View>}
+                                        {serviceFeeEnabled && <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Service Fee</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(feeAmt, txCurrency)}</Text></View>}
+                                        {tipEnabled && <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Tip ({tipIsPercent ? tipValue + '%' : formatCurrency(parseFloat(tipValue) || 0, txCurrency)})</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(tipAmt, txCurrency)}</Text></View>}
                                         <View style={[s.brow, s.btotalRow, { borderColor: colors.border }]}>
                                             <Text style={[s.btotalLbl, { color: colors.textPrimary }]}>Total</Text>
-                                            <Text style={[s.btotalVal, { color: colors.primary }]}>{formatCurrency(total, currency)}</Text>
+                                            <Text style={[s.btotalVal, { color: colors.primary }]}>{formatCurrency(total, txCurrency)}</Text>
                                         </View>
                                     </View>
                                 )}
