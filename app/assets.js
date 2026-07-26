@@ -416,58 +416,63 @@ export default function Assets() {
 
             {/* ── Transfer Modal ────────────────────────────────────── */}
             <Modal visible={showTransfer} animationType="slide" transparent>
-                <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
-                    <View style={[styles.modalBox, { backgroundColor: colors.modalBg }]}>
-                        <View style={styles.modalHeader}>
-                            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Transfer Funds</Text>
-                            <TouchableOpacity onPress={() => requestAnimationFrame(() => setShowTransfer(false))}>
-                                <Ionicons name="close" size={24} color={colors.textSecondary} />
-                            </TouchableOpacity>
-                        </View>
-
-                        <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>From</Text>
-                        <View style={styles.accountPicker}>
-                            {assets.map(a => (
-                                <TouchableOpacity
-                                    key={a.id}
-                                    style={[styles.accountOption, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }, fromId === a.id && [styles.accountOptionActive, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]]}
-                                    onPress={() => setFromId(a.id)}
-                                >
-                                    <Text style={[styles.accountOptionText, { color: colors.textPrimary }]}>{a.name}</Text>
-                                    <Text style={[styles.accountOptionBal, { color: colors.textSecondary }]}>{formatCurrency(a.balance, a.currency || currency)}</Text>
+                <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+                    <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+                        <View style={[styles.modalBox, { backgroundColor: colors.modalBg, maxHeight: '90%' }]}>
+                            <View style={styles.modalHeader}>
+                                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Transfer Funds</Text>
+                                <TouchableOpacity onPress={() => requestAnimationFrame(() => setShowTransfer(false))}>
+                                    <Ionicons name="close" size={24} color={colors.textSecondary} />
                                 </TouchableOpacity>
-                            ))}
-                        </View>
+                            </View>
 
-                        <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>To</Text>
-                        <View style={styles.accountPicker}>
-                            {assets.filter(a => a.id !== fromId).map(a => (
-                                <TouchableOpacity
-                                    key={a.id}
-                                    style={[styles.accountOption, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }, toId === a.id && [styles.accountOptionActive, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]]}
-                                    onPress={() => setToId(a.id)}
-                                >
-                                    <Text style={[styles.accountOptionText, { color: colors.textPrimary }]}>{a.name}</Text>
-                                    <Text style={[styles.accountOptionBal, { color: colors.textSecondary }]}>{formatCurrency(a.balance, a.currency || currency)}</Text>
+                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+
+                                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>From</Text>
+                                <View style={styles.accountPicker}>
+                                    {assets.map(a => (
+                                        <TouchableOpacity
+                                            key={a.id}
+                                            style={[styles.accountOption, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }, fromId === a.id && [styles.accountOptionActive, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]]}
+                                            onPress={() => setFromId(a.id)}
+                                        >
+                                            <Text style={[styles.accountOptionText, { color: colors.textPrimary }]}>{a.name}</Text>
+                                            <Text style={[styles.accountOptionBal, { color: colors.textSecondary }]}>{formatCurrency(a.balance, a.currency || currency)}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>To</Text>
+                                <View style={styles.accountPicker}>
+                                    {assets.filter(a => a.id !== fromId).map(a => (
+                                        <TouchableOpacity
+                                            key={a.id}
+                                            style={[styles.accountOption, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }, toId === a.id && [styles.accountOptionActive, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]]}
+                                            onPress={() => setToId(a.id)}
+                                        >
+                                            <Text style={[styles.accountOptionText, { color: colors.textPrimary }]}>{a.name}</Text>
+                                            <Text style={[styles.accountOptionBal, { color: colors.textSecondary }]}>{formatCurrency(a.balance, a.currency || currency)}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Amount ({currency})</Text>
+                                <TextInput
+                                    style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                                    placeholder="0"
+                                    placeholderTextColor={colors.textMuted}
+                                    value={transferAmount}
+                                    onChangeText={setTransferAmount}
+                                    keyboardType="numeric"
+                                />
+
+                                <TouchableOpacity style={[styles.saveBtn, { backgroundColor: colors.primary }]} onPress={handleTransfer}>
+                                    <Text style={styles.saveBtnText}>Transfer</Text>
                                 </TouchableOpacity>
-                            ))}
+                            </ScrollView>
                         </View>
-
-                        <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Amount ({currency})</Text>
-                        <TextInput
-                            style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
-                            placeholder="0"
-                            placeholderTextColor={colors.textMuted}
-                            value={transferAmount}
-                            onChangeText={setTransferAmount}
-                            keyboardType="numeric"
-                        />
-
-                        <TouchableOpacity style={[styles.saveBtn, { backgroundColor: colors.primary }]} onPress={handleTransfer}>
-                            <Text style={styles.saveBtnText}>Transfer</Text>
-                        </TouchableOpacity>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* Currency Breakdown Modal */}

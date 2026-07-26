@@ -67,7 +67,7 @@ export default function Onboarding() {
     const [goalEnd, setGoalEnd] = useState('');
     const [goalCommitment, setGoalCommitment] = useState('');
     const [goalNotify, setGoalNotify] = useState(false);
-    
+
     const addLocalGoal = () => {
         if (!goalTitle.trim() || parseFloat(goalAmount) <= 0) {
             Alert.alert('Error', 'Please enter a valid goal title and target amount.');
@@ -77,7 +77,7 @@ export default function Onboarding() {
             Alert.alert('Error', 'Start date cannot be later than end date.'); return;
         }
         if (goalNotify && !goalCommitment) { Alert.alert('Error', 'Please choose a reminder frequency.'); return; }
-        
+
         setGoals([...goals, {
             id: generateId(), title: goalTitle.trim(), targetAmount: parseFloat(goalAmount),
             currentAmount: 0, startDate: goalStart || null, endDate: goalEnd || null,
@@ -183,7 +183,7 @@ export default function Onboarding() {
             return;
         }
         if (!canNext()) { Alert.alert('', 'Please make a selection'); return; }
-        
+
         if (step === 3) {
             setCurrency(selectedCurrency);
         }
@@ -236,7 +236,7 @@ export default function Onboarding() {
                     <View>
                         <Text style={s.heading}>Before We Start</Text>
                         <Text style={s.sub}>FinanceFlow is designed with strict privacy in mind.</Text>
-                        
+
                         <View style={s.featuresList}>
                             <View style={s.featureRow}>
                                 <View style={[s.featureIconWrap, { backgroundColor: '#10B98118' }]}>
@@ -339,7 +339,7 @@ export default function Onboarding() {
                     <View>
                         <Text style={s.heading}>Select Default Currency</Text>
                         <Text style={s.sub}>Choose the primary currency you'd like to use in FinanceFlow. You can change this later in Settings.</Text>
-                        
+
                         <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
                             {currencies.map(c => (
                                 <TouchableOpacity key={c.code}
@@ -511,7 +511,7 @@ export default function Onboarding() {
                     <View>
                         <Text style={s.heading}>Create Saving Goals</Text>
                         <Text style={s.sub}>Start working towards something meaningful. Add your financial targets.</Text>
-                        
+
                         {goals.map((g, index) => (
                             <View key={g.id} style={[s.atmCard, { backgroundColor: getCardColor(g, index), shadowColor: '#1A1040', marginBottom: 12 }]}>
                                 <View style={s.atmCardTop}>

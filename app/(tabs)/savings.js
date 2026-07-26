@@ -603,71 +603,71 @@ export default function Savings() {
                         <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center' }]}>
                             <View style={{ backgroundColor: colors.modalBg, borderRadius: 22, padding: Spacing.xl, width: '85%', maxWidth: 360, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 10, elevation: 5 }}>
                                 <Text style={{ fontSize: FontSize.lg, fontFamily: 'Poppins_700Bold', color: colors.textPrimary, marginBottom: Spacing.lg, textAlign: 'center' }}>
-                            Reminder Time
-                        </Text>
-                        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: Spacing.xl, marginBottom: Spacing.lg }}>
-                            {/* Hour */}
-                            <View style={{ alignItems: 'center', gap: Spacing.sm }}>
-                                <Text style={{ fontSize: FontSize.xs, color: colors.textMuted, fontFamily: 'Poppins_500Medium' }}>HOUR</Text>
-                                <TouchableOpacity onPress={() => setPickerHour(h => h <= 0 ? 23 : h - 1)}>
-                                    <Ionicons name="chevron-up" size={26} color={colors.primary} />
-                                </TouchableOpacity>
-                                <Text style={{ fontSize: 36, fontFamily: 'Poppins_700Bold', color: colors.textPrimary, minWidth: 56, textAlign: 'center' }}>
-                                    {pickerHour === 0 ? 12 : pickerHour > 12 ? pickerHour - 12 : pickerHour}
+                                    Reminder Time
                                 </Text>
-                                <TouchableOpacity onPress={() => setPickerHour(h => h >= 23 ? 0 : h + 1)}>
-                                    <Ionicons name="chevron-down" size={26} color={colors.primary} />
-                                </TouchableOpacity>
-                            </View>
-                            <Text style={{ fontSize: 36, fontFamily: 'Poppins_700Bold', color: colors.textPrimary, marginTop: 28 }}>:</Text>
-                            {/* Minute */}
-                            <View style={{ alignItems: 'center', gap: Spacing.sm }}>
-                                <Text style={{ fontSize: FontSize.xs, color: colors.textMuted, fontFamily: 'Poppins_500Medium' }}>MIN</Text>
-                                <TouchableOpacity onPress={() => setPickerMinute(m => m <= 0 ? 55 : m - 5)}>
-                                    <Ionicons name="chevron-up" size={26} color={colors.primary} />
-                                </TouchableOpacity>
-                                <Text style={{ fontSize: 36, fontFamily: 'Poppins_700Bold', color: colors.textPrimary, minWidth: 56, textAlign: 'center' }}>
-                                    {String(pickerMinute).padStart(2, '0')}
-                                </Text>
-                                <TouchableOpacity onPress={() => setPickerMinute(m => m >= 55 ? 0 : m + 5)}>
-                                    <Ionicons name="chevron-down" size={26} color={colors.primary} />
-                                </TouchableOpacity>
-                            </View>
-                            {/* AM/PM */}
-                            <View style={{ alignItems: 'center', gap: Spacing.sm, justifyContent: 'center', marginTop: 10 }}>
-                                <TouchableOpacity
-                                    onPress={() => setPickerHour(h => h < 12 ? h : h - 12)}
-                                    style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: pickerHour < 12 ? colors.primary : colors.inputBg }}
-                                >
-                                    <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm, color: pickerHour < 12 ? '#fff' : colors.textMuted }}>AM</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    onPress={() => setPickerHour(h => h >= 12 ? h : h + 12)}
-                                    style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: pickerHour >= 12 ? colors.primary : colors.inputBg }}
-                                >
-                                    <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm, color: pickerHour >= 12 ? '#fff' : colors.textMuted }}>PM</Text>
-                                </TouchableOpacity>
+                                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: Spacing.xl, marginBottom: Spacing.lg }}>
+                                    {/* Hour */}
+                                    <View style={{ alignItems: 'center', gap: Spacing.sm }}>
+                                        <Text style={{ fontSize: FontSize.xs, color: colors.textMuted, fontFamily: 'Poppins_500Medium' }}>HOUR</Text>
+                                        <TouchableOpacity onPress={() => setPickerHour(h => h <= 0 ? 23 : h - 1)}>
+                                            <Ionicons name="chevron-up" size={26} color={colors.primary} />
+                                        </TouchableOpacity>
+                                        <Text style={{ fontSize: 36, fontFamily: 'Poppins_700Bold', color: colors.textPrimary, minWidth: 56, textAlign: 'center' }}>
+                                            {pickerHour === 0 ? 12 : pickerHour > 12 ? pickerHour - 12 : pickerHour}
+                                        </Text>
+                                        <TouchableOpacity onPress={() => setPickerHour(h => h >= 23 ? 0 : h + 1)}>
+                                            <Ionicons name="chevron-down" size={26} color={colors.primary} />
+                                        </TouchableOpacity>
+                                    </View>
+                                    <Text style={{ fontSize: 36, fontFamily: 'Poppins_700Bold', color: colors.textPrimary, marginTop: 28 }}>:</Text>
+                                    {/* Minute */}
+                                    <View style={{ alignItems: 'center', gap: Spacing.sm }}>
+                                        <Text style={{ fontSize: FontSize.xs, color: colors.textMuted, fontFamily: 'Poppins_500Medium' }}>MIN</Text>
+                                        <TouchableOpacity onPress={() => setPickerMinute(m => m <= 0 ? 55 : m - 5)}>
+                                            <Ionicons name="chevron-up" size={26} color={colors.primary} />
+                                        </TouchableOpacity>
+                                        <Text style={{ fontSize: 36, fontFamily: 'Poppins_700Bold', color: colors.textPrimary, minWidth: 56, textAlign: 'center' }}>
+                                            {String(pickerMinute).padStart(2, '0')}
+                                        </Text>
+                                        <TouchableOpacity onPress={() => setPickerMinute(m => m >= 55 ? 0 : m + 5)}>
+                                            <Ionicons name="chevron-down" size={26} color={colors.primary} />
+                                        </TouchableOpacity>
+                                    </View>
+                                    {/* AM/PM */}
+                                    <View style={{ alignItems: 'center', gap: Spacing.sm, justifyContent: 'center', marginTop: 10 }}>
+                                        <TouchableOpacity
+                                            onPress={() => setPickerHour(h => h < 12 ? h : h - 12)}
+                                            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: pickerHour < 12 ? colors.primary : colors.inputBg }}
+                                        >
+                                            <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm, color: pickerHour < 12 ? '#fff' : colors.textMuted }}>AM</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={() => setPickerHour(h => h >= 12 ? h : h + 12)}
+                                            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: pickerHour >= 12 ? colors.primary : colors.inputBg }}
+                                        >
+                                            <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm, color: pickerHour >= 12 ? '#fff' : colors.textMuted }}>PM</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                                <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                                    <TouchableOpacity
+                                        style={{ flex: 1, padding: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}
+                                        onPress={() => requestAnimationFrame(() => setShowTimePicker(false))}
+                                    >
+                                        <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: FontSize.sm, color: colors.textSecondary }}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={{ flex: 1, padding: Spacing.md, borderRadius: BorderRadius.md, backgroundColor: colors.primary, alignItems: 'center' }}
+                                        onPress={() => { setReminderHour(pickerHour); setReminderMinute(pickerMinute); setShowTimePicker(false); }}
+                                    >
+                                        <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm, color: '#fff' }}>Set Time</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         </View>
-                        <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
-                            <TouchableOpacity
-                                style={{ flex: 1, padding: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}
-                                onPress={() => requestAnimationFrame(() => setShowTimePicker(false))}
-                            >
-                                <Text style={{ fontFamily: 'Poppins_600SemiBold', fontSize: FontSize.sm, color: colors.textSecondary }}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={{ flex: 1, padding: Spacing.md, borderRadius: BorderRadius.md, backgroundColor: colors.primary, alignItems: 'center' }}
-                                onPress={() => { setReminderHour(pickerHour); setReminderMinute(pickerMinute); setShowTimePicker(false); }}
-                            >
-                                <Text style={{ fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm, color: '#fff' }}>Set Time</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
+                    )}
                 </View>
-            )}
-            </View>
-        </Modal>
+            </Modal>
 
 
             {/* Add to Saving Modal */}

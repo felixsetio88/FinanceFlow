@@ -11,6 +11,7 @@ import { useTheme } from '../context/ThemeContext';
 import { formatCurrency } from '../utils/currencies';
 import { Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { chatCompletion, isModelDownloaded } from '../services/localAI';
+import { convertCurrency } from '../services/exchangeRates';
 
 // Circular Progress Component
 const ScoreGauge = ({ score, colors }) => {
@@ -70,7 +71,7 @@ export default function FinancialHealth() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { colors, isDark } = useTheme();
-    const { transactions, assets, savingsGoals, budgets, currency } = useApp();
+    const { transactions, assets, savingsGoals, budgets, currency, exchangeRates } = useApp();
 
     const [modelReady, setModelReady] = useState(false);
     const [insight, setInsight] = useState('');
@@ -128,7 +129,7 @@ export default function FinancialHealth() {
         // 1. Get live total asset value
         let liquidAssets = assets
             .filter(a => ['bank', 'cash', 'investment'].includes(a.type))
-            .reduce((sum, a) => sum + a.balance, 0);
+            .reduce((sum, a) => sum + convertCurrency(a.balance, a.currency || currency, currency, exchangeRates), 0);
 
         const endOfSelectedMonth = new Date(year, month + 1, 0, 23, 59, 59, 999).getTime();
 
@@ -136,13 +137,14 @@ export default function FinancialHealth() {
         transactions.forEach(t => {
             const txTime = new Date(t.date).getTime();
             if (txTime > endOfSelectedMonth) {
-                if (t.type === 'income') liquidAssets -= t.amount;
-                if (t.type === 'spending') liquidAssets += t.amount;
+                const amt = convertCurrency(t.amount, t.currency || currency, currency, exchangeRates);
+                if (t.type === 'income') liquidAssets -= amt;
+                if (t.type === 'spending') liquidAssets += amt;
                 // 'transfer' does not change total net worth across liquid assets
             }
         });
 
-        const savingsProgress = savingsGoals.reduce((sum, g) => sum + (g.currentAmount || 0), 0);
+        const savingsProgress = savingsGoals.reduce((sum, g) => sum + convertCurrency(g.currentAmount || 0, g.currency || currency, currency, exchangeRates), 0);
         const currentSavings = liquidAssets + savingsProgress;
 
         // Cash flow for selected month
@@ -151,8 +153,9 @@ export default function FinancialHealth() {
         transactions.forEach(t => {
             const d = new Date(t.date);
             if (d.getFullYear() === year && d.getMonth() === month) {
-                if (t.type === 'income') monthlyEarning += t.amount;
-                if (t.type === 'spending') monthlySpending += t.amount;
+                const amt = convertCurrency(t.amount, t.currency || currency, currency, exchangeRates);
+                if (t.type === 'income') monthlyEarning += amt;
+                if (t.type === 'spending') monthlySpending += amt;
             }
         });
 

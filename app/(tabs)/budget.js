@@ -1,3 +1,4 @@
+import FastInput from '../../components/FastInput';
 import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal, Alert, StyleSheet, useWindowDimensions } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-svg';
@@ -225,7 +226,7 @@ export default function Budget() {
                         </ScrollView>
 
                         <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Budget Limit ({currency})</Text>
-                        <TextInput
+                        <FastInput
                             style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
                             placeholder="Enter amount"
                             placeholderTextColor={colors.textMuted}
