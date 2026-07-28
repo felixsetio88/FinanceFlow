@@ -242,8 +242,8 @@ class OBDService {
         const connectionTimeoutPromise = new Promise((_, reject) => {
             setTimeout(() => {
                 _timeoutReached = true;
-                reject(new Error('Connection timed out after 30 seconds. Make sure the OBD scanner is plugged in and Bluetooth is on.'));
-            }, 30000);
+                reject(new Error('Connection timed out after 60 seconds. Make sure the OBD scanner is plugged in, ignition is ON, and Bluetooth is enabled.'));
+            }, 60000);
         });
 
         const doConnect = async () => {
@@ -335,38 +335,79 @@ class OBDService {
     }
 
     // ── ELM327 Initialization with protocol detection ──
+    // Implements a robust init sequence known to work with Toyota ISO 15765-4 CAN (11-bit 500k).
+    // Based on ELM327 datasheet best practices and open-source OBD projects.
     async _initELM327() {
-        // Reset
-        await this._sendCommand('ATZ', 2500);   // Reset ELM327
-        await this._delay(500);                   // Give it time to boot
-        await this._sendCommand('ATE0', 800);    // Echo off
-        await this._sendCommand('ATL0', 800);    // Linefeeds off
-        await this._sendCommand('ATS0', 800);    // Spaces off
-        await this._sendCommand('ATH0', 800);    // Headers off
-        await this._sendCommand('ATAT1', 800);   // Adaptive timing auto 1 (faster responses)
-        await this._sendCommand('ATSTFF', 800);  // Set timeout to max (~1020ms) for slow ECUs
+        // ── Step 1: Hard reset & stabilise ────────────────────────────────
+        await this._sendCommand('ATZ', 3000);    // Full reset, clears all settings
+        await this._delay(1000);                  // ELM327 takes ~600ms to reboot after ATZ
 
-        // Try protocol detection in order
-        for (const proto of PROTOCOL_FALLBACK_ORDER) {
+        // ── Step 2: Line discipline ─────────────────────────────────────
+        await this._sendCommand('ATE0', 1000);   // Echo OFF   — prevents doubled data
+        await this._sendCommand('ATL0', 1000);   // Linefeed OFF
+        await this._sendCommand('ATS0', 1000);   // Spaces OFF — cleaner parsing
+        await this._sendCommand('ATH1', 1000);   // Headers ON — REQUIRED for multi-frame CAN
+        await this._sendCommand('ATCAF1', 1000); // CAN Auto Formatting ON — handles flow-ctrl frames (Toyota needs this)
+        await this._sendCommand('ATAT2', 1000);  // Adaptive timing 2 (most aggressive — needed for slow ECUs)
+        await this._sendCommand('ATSTFF', 1000); // Max response timeout (~1.02s) during init
+
+        // ── Step 3: Protocol negotiation ────────────────────────────────
+        // Prioritise ISO 15765-4 CAN 11-bit 500kbaud (protocol 6) which is the
+        // standard for Toyota 2008+, then work through the rest.
+        // We do NOT include 0 (auto) until the end because "auto" hangs for ~8s
+        // when the wrong protocol is tried.
+        const PROTOCOL_ORDER = [6, 7, 8, 9, 5, 4, 3, 0];
+
+        for (const proto of PROTOCOL_ORDER) {
             console.log(`[OBD] Trying protocol ${proto}...`);
-            await this._sendCommand(`ATSP${proto}`, 1000);
 
-            // Verify ECU communication by requesting supported PIDs
-            const testRes = await this._sendCommand(PIDS.SUPPORTED_0, 3000);
+            // Set protocol
+            const spRes = await this._sendCommand(`ATSP${proto}`, 1200);
+            await this._delay(200); // brief pause before first PID query
+
+            // Try to wake the bus with a supported PIDs request
+            // Send twice because some ECUs ignore the first frame after protocol change
+            let testRes = await this._sendCommand(PIDS.SUPPORTED_0, 4000);
+            const clean1 = testRes.replace(/[\r\n\s>]/g, '').toUpperCase();
+
+            // If no data on first attempt, retry once (bus wake-up can be slow)
+            if (!clean1.includes('4100')) {
+                await this._delay(300);
+                testRes = await this._sendCommand(PIDS.SUPPORTED_0, 4000);
+            }
+
             const clean = testRes.replace(/[\r\n\s>]/g, '').toUpperCase();
             console.log(`[OBD] Protocol ${proto} response: "${clean}"`);
 
-            // Valid response should contain "4100" followed by hex data
-            if (clean.includes('4100') && !clean.includes('NODATA') && !clean.includes('ERROR') && !clean.includes('UNABLE') && !clean.includes('STOPPED')) {
+            const isSuccess =
+                clean.includes('4100') &&
+                !clean.includes('NODATA') &&
+                !clean.includes('ERROR') &&
+                !clean.includes('UNABLE') &&
+                !clean.includes('STOPPED') &&
+                !clean.includes('BUSBUSY') &&
+                !clean.includes('BUSERROR') &&
+                !clean.includes('CANERROR') &&
+                !clean.includes('FB') &&  // "FB" is a common garbage response
+                clean.length > 10;        // Real response must be at least 41001234ABCD
+
+            if (isSuccess) {
                 console.log(`[OBD] ✅ ECU responding on protocol ${proto}`);
 
-                // Now reduce timeout for normal polling (faster updates)
-                await this._sendCommand('ATST32', 800); // ~200ms timeout for normal queries
+                // Get the actual protocol description (for logging)
+                const dpRes = await this._sendCommand('ATDPN', 1000);
+                console.log(`[OBD] Detected protocol number: ${dpRes.trim()}`);
+
+                // Tighten timing now that we're talking — keeps UI updates fast
+                await this._sendCommand('ATAT1', 800);  // Back to adaptive timing 1
+                await this._sendCommand('ATST26', 800); // ~152ms timeout for normal queries
+                await this._sendCommand('ATH0', 800);   // Turn headers back off for cleaner parsing
                 return true;
             }
         }
 
-        console.warn('[OBD] ❌ No protocol could reach the ECU.');
+        // Last-ditch: prompt user that ignition might be off
+        console.warn('[OBD] ❌ No protocol could reach the ECU. Is the ignition ON?');
         return false;
     }
 
