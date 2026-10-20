@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Platform, View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, useWindowDimensions } from 'react-native';
+import { useRouter } from 'expo-router';
 import Svg, { Defs, LinearGradient as SvgGrad, Stop, Rect, Circle, G, Path, Line } from 'react-native-svg';
 import { format, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } from 'date-fns';
 import { useApp } from '../../context/AppContext';
@@ -252,6 +253,7 @@ function AssetsTrendChart({ data, colors, currency, width }) {
 }
 
 export default function Charts() {
+    const router = useRouter();
     const { colors, isDark } = useTheme();
     const { transactions, currency, currentDateKey, assets, exchangeRates, convertCurrency } = useApp();
     const [period, setPeriod] = useState('monthly');
@@ -286,13 +288,13 @@ export default function Charts() {
                 label: monthDate.toLocaleString('en-US', { month: 'short' }),
                 income: monthTransactions
                     .filter(transaction => transaction.type === 'income')
-                    .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0),
+                    .reduce((sum, transaction) => sum + Math.abs(convertCurrency(transaction.amount, transaction.currency || currency, currency, exchangeRates)), 0),
                 spending: monthTransactions
                     .filter(transaction => transaction.type === 'spending')
-                    .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0),
+                    .reduce((sum, transaction) => sum + Math.abs(convertCurrency(transaction.amount, transaction.currency || currency, currency, exchangeRates)), 0),
             };
         });
-    }, [transactions, currentDateKey]);
+    }, [transactions, currentDateKey, currency, exchangeRates]);
 
     const assetsTrend = useMemo(() => {
         const referenceDate = new Date(currentDateKey);
@@ -318,17 +320,30 @@ export default function Charts() {
                     break;
                 }
                 
-                const amount = Math.abs(tx.amount || 0);
+                const rawAmount = Math.abs(tx.amount || 0);
                 if (tx.type === 'income' && tx.assetId && currentBalances[tx.assetId] !== undefined) {
+                    const asset = (assets || []).find(a => a.id === tx.assetId);
+                    const assetCur = asset?.currency || currency;
+                    const amount = convertCurrency(rawAmount, tx.currency || assetCur, assetCur, exchangeRates);
                     currentBalances[tx.assetId] -= amount;
                 } else if (tx.type === 'spending' && tx.assetId && currentBalances[tx.assetId] !== undefined) {
+                    const asset = (assets || []).find(a => a.id === tx.assetId);
+                    const assetCur = asset?.currency || currency;
+                    const amount = convertCurrency(rawAmount, tx.currency || assetCur, assetCur, exchangeRates);
                     currentBalances[tx.assetId] += amount;
                 } else if (tx.type === 'move') {
                     if (tx.fromAssetId && currentBalances[tx.fromAssetId] !== undefined) {
+                        const fromAsset = (assets || []).find(a => a.id === tx.fromAssetId);
+                        const fromCur = fromAsset?.currency || tx.currency || currency;
+                        const amount = convertCurrency(rawAmount, tx.currency || fromCur, fromCur, exchangeRates);
                         currentBalances[tx.fromAssetId] += amount;
                     }
                     if (tx.toAssetId && currentBalances[tx.toAssetId] !== undefined) {
-                        currentBalances[tx.toAssetId] -= amount;
+                        const toAsset = (assets || []).find(a => a.id === tx.toAssetId);
+                        const toCur = toAsset?.currency || currency;
+                        const fromCur = (assets || []).find(a => a.id === tx.fromAssetId)?.currency || tx.currency || currency;
+                        const destAmount = convertCurrency(rawAmount, fromCur, toCur, exchangeRates);
+                        currentBalances[tx.toAssetId] -= destAmount;
                     }
                 }
                 txIndex++;
@@ -449,7 +464,7 @@ export default function Charts() {
 
                 {period === 'all' ? (
                     <>
-                        <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: isDark ? '#000' : '#1A1040' }]}>
+                        <View style={[styles.chartCard, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : '#1A1040' }]}>
                             <View style={styles.chartCardHeader}>
                                 <Ionicons name="trending-up-outline" size={18} color={colors.primary} />
                                 <Text style={[styles.chartTitle, { color: colors.textPrimary }]}>6-Month Trend</Text>
@@ -457,7 +472,7 @@ export default function Charts() {
                             <MonthlyTrendChart data={monthlyTrend} colors={colors} currency={currency} />
                         </View>
 
-                        <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: isDark ? '#000' : '#1A1040' }]}>
+                        <View style={[styles.chartCard, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : '#1A1040' }]}>
                             <View style={styles.chartCardHeader}>
                                 <Ionicons name="stats-chart-outline" size={18} color={colors.primary} />
                                 <Text style={[styles.chartTitle, { color: colors.textPrimary }]}>Assets Trend</Text>
@@ -467,7 +482,7 @@ export default function Charts() {
                     </>
                 ) : (
                     <>
-                        <View style={[styles.heroCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: isDark ? '#000' : '#1A1040' }]}>
+                        <View style={[styles.heroCard, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : '#1A1040' }]}>
                             <Text style={[styles.heroLabel, { color: colors.textSecondary }]}>{periodLabel} Overview</Text>
                             <Text style={[styles.heroNet, { color: netBalance >= 0 ? colors.emerald : colors.rose }]}>
                                 {netBalance >= 0 ? '+' : ''}{formatCurrency(netBalance, currency)}
@@ -493,7 +508,7 @@ export default function Charts() {
                         </View>
 
 
-                        <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: isDark ? '#000' : '#1A1040' }]}>
+                        <View style={[styles.chartCard, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : '#1A1040' }]}>
                             <View style={styles.chartCardHeader}>
                                 <Ionicons name="bar-chart-outline" size={18} color={colors.primary} />
                                 <Text style={[styles.chartTitle, { color: colors.textPrimary }]}>Income vs Spending</Text>
@@ -545,7 +560,7 @@ export default function Charts() {
                                 { icon: 'trending-down-outline', value: periodTx.length > 0 ? formatCurrency(totalSpending / Math.max(spendingTx.length, 1), currency) : formatCurrency(0, currency), label: 'Avg Expense', color: colors.rose },
                                 { icon: 'analytics-outline', value: `${totalIncome > 0 ? ((totalSpending / totalIncome) * 100).toFixed(0) : 0}%`, label: 'Spend Rate', color: totalIncome > totalSpending ? colors.emerald : colors.rose },
                             ].map((stat, i) => (
-                                <View key={i} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: isDark ? '#000' : '#1A1040' }]}>
+                                <View key={i} style={[styles.statCard, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : '#1A1040' }]}>
                                     <View style={[styles.statIconWrap, { backgroundColor: `${stat.color}18` }]}>
                                         <Ionicons name={stat.icon} size={18} color={stat.color} />
                                     </View>
@@ -555,7 +570,7 @@ export default function Charts() {
                             ))}
                         </View>
 
-                        <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: isDark ? '#000' : '#1A1040' }]}>
+                        <View style={[styles.chartCard, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : '#1A1040' }]}>
                             <View style={styles.chartCardHeader}>
                                 <Ionicons name="pie-chart-outline" size={18} color={colors.primary} />
                                 <Text style={[styles.chartTitle, { color: colors.textPrimary }]}>Spending by Category</Text>
@@ -572,14 +587,29 @@ export default function Charts() {
                                     </View>
                                     <View style={[styles.catBars, { borderColor: colors.border }]}>
                                         {categoryData.map((cat) => (
-                                            <View key={cat.id} style={styles.catBarRow}>
+                                            <TouchableOpacity
+                                                key={cat.id}
+                                                style={styles.catBarRow}
+                                                activeOpacity={0.7}
+                                                onPress={() => router.push({
+                                                    pathname: '/category-transactions',
+                                                    params: {
+                                                        category: cat.id,
+                                                        period: period,
+                                                        refDate: refDate.toISOString(),
+                                                    }
+                                                })}
+                                            >
                                                 <View style={[styles.catBarIconWrap, { backgroundColor: isDark ? `${cat.color}33` : `${cat.color}14` }]}>
                                                     <Ionicons name={cat.icon} size={16} color={cat.color} />
                                                 </View>
                                                 <View style={styles.catBarInfo}>
                                                     <View style={styles.catBarHeader}>
                                                         <Text style={[styles.catBarName, { color: colors.textPrimary }]} numberOfLines={1}>{cat.name}</Text>
-                                                        <Text style={[styles.catBarAmount, { color: cat.color }]}>{formatCurrency(cat.total, currency)}</Text>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                                            <Text style={[styles.catBarAmount, { color: cat.color }]}>{formatCurrency(cat.total, currency)}</Text>
+                                                            <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+                                                        </View>
                                                     </View>
                                                     <View style={[styles.catBarTrack, { backgroundColor: colors.border }]}>
                                                         <View style={[styles.catBarFill, { width: `${totalSpending > 0 ? (cat.total / totalSpending * 100) : 0}%`, backgroundColor: cat.color }]} />
@@ -589,7 +619,7 @@ export default function Charts() {
                                                         <Text style={[styles.catBarPct, { color: cat.color }]}>{totalSpending > 0 ? ((cat.total / totalSpending) * 100).toFixed(1) : 0}%</Text>
                                                     </View>
                                                 </View>
-                                            </View>
+                                            </TouchableOpacity>
                                         ))}
                                     </View>
                                 </View>
@@ -777,8 +807,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.88)',
         borderRadius: 22,
         padding: Spacing.lg,
-        borderWidth: 1,
-        borderColor: 'rgba(255,102,0,0.08)',
         marginBottom: Spacing.lg,
         shadowColor: '#1A1040',
         shadowOffset: { width: 0, height: 4 },
@@ -840,8 +868,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.88)',
         borderRadius: 22,
         padding: Spacing.lg,
-        borderWidth: 1,
-        borderColor: 'rgba(255,102,0,0.07)',
         marginBottom: Spacing.lg,
         shadowColor: '#1A1040',
         shadowOffset: { width: 0, height: 2 },
@@ -1018,8 +1044,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.88)',
         borderRadius: BorderRadius.lg,
         padding: Spacing.md,
-        borderWidth: 1,
-        borderColor: 'rgba(255,102,0,0.07)',
         shadowColor: '#1A1040',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.04,

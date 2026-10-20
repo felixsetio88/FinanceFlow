@@ -57,7 +57,10 @@ export default function Dashboard() {
     const showMoreAssetsBtn = assets.length > 5;
     const recentTransactions = transactions.slice(0, 6);
     const topCategories = Object.entries(groupByCategory(monthlyTx.filter(t => t.type === 'spending'), (t) => convertCurrency(t.amount, t.currency || currency, currency, exchangeRates)))
-        .map(([id, data]) => ({ ...getCategoryById(id), total: data.total }))
+        .map(([id, data]) => {
+            const catInfo = getCategoryById(id);
+            return { ...catInfo, id: catInfo.id, total: data.total };
+        })
         .sort((a, b) => b.total - a.total).slice(0, 6);
     const savingsRecommendations = useMemo(() => getSavingReminderRecommendations(savingsGoals).slice(0, 3), [savingsGoals]);
 
@@ -380,11 +383,11 @@ export default function Dashboard() {
                                                         style={styles.editBtn}
                                                         onPress={() => router.push({ pathname: '/add-transaction', params: { editId: tx.id } })}
                                                     >
-                                                        <Ionicons name="pencil" size={13} color="#6A6FF8" />
+                                                        <Ionicons name="pencil" size={14} color="#6A6FF8" />
                                                         <Text style={styles.editTxt}>Edit</Text>
                                                     </TouchableOpacity>
                                                     <TouchableOpacity style={styles.deleteBtn} onPress={() => confirmDeleteTx(tx)}>
-                                                        <Ionicons name="trash" size={13} color="#dc2626" />
+                                                        <Ionicons name="trash" size={14} color="#dc2626" />
                                                         <Text style={styles.deleteTxt}>Delete</Text>
                                                     </TouchableOpacity>
                                                 </View>
@@ -397,16 +400,31 @@ export default function Dashboard() {
                         topCategories.length === 0
                             ? <View style={styles.emptyList}><Text style={[styles.emptyListTxt, { color: textMuted }]}>No category spending yet</Text></View>
                             : topCategories.map(cat => (
-                                <View key={cat.id} style={[styles.txCard, { backgroundColor: cardBg }]}>
+                                <TouchableOpacity
+                                    key={cat.id}
+                                    style={[styles.txCard, { backgroundColor: cardBg }]}
+                                    activeOpacity={0.75}
+                                    onPress={() => router.push({
+                                        pathname: '/category-transactions',
+                                        params: {
+                                            category: cat.id,
+                                            period: 'monthly',
+                                            refDate: new Date().toISOString(),
+                                        }
+                                    })}
+                                >
                                     <View style={styles.txMain}>
                                         <View style={[styles.txIcon, { backgroundColor: `${cat.color}18` }]}><Ionicons name={cat.icon} size={20} color={cat.color} /></View>
                                         <View style={styles.txInfo}>
                                             <Text style={[styles.txName, { color: textPrimary }]}>{cat.name}</Text>
-                                            <Text style={[styles.txMeta, { color: textMuted }]}>Top category</Text>
+                                            <Text style={[styles.txMeta, { color: textMuted }]}>Top category · Tap to view</Text>
                                         </View>
-                                        <Text style={[styles.txAmount, { color: '#dc2626' }]}>-{formatCurrency(Math.abs(cat.total), currency)}</Text>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                            <Text style={[styles.txAmount, { color: '#dc2626' }]}>-{formatCurrency(Math.abs(cat.total), currency)}</Text>
+                                            <Ionicons name="chevron-forward" size={16} color={textMuted} />
+                                        </View>
                                     </View>
-                                </View>
+                                </TouchableOpacity>
                             ))
                     )}
                 </View>
@@ -499,11 +517,11 @@ const styles = StyleSheet.create({
     txExpanded: { paddingHorizontal: Spacing.md, paddingBottom: Spacing.md },
     txExpandedDivider: { height: 1, marginBottom: Spacing.sm },
     txDetail: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', marginBottom: 4 },
-    txActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
-    editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(106,111,248,0.1)', paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: BorderRadius.full },
-    editTxt: { fontSize: FontSize.xs, fontFamily: 'Poppins_600SemiBold', color: '#6A6FF8' },
-    deleteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(220,38,38,0.08)', paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: BorderRadius.full },
-    deleteTxt: { fontSize: FontSize.xs, fontFamily: 'Poppins_600SemiBold', color: '#dc2626' },
+    txActions: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.sm },
+    editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(106,111,248,0.1)', paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: BorderRadius.full },
+    editTxt: { fontSize: FontSize.sm, fontFamily: 'Poppins_600SemiBold', color: '#6A6FF8' },
+    deleteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(220,38,38,0.08)', paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: BorderRadius.full },
+    deleteTxt: { fontSize: FontSize.sm, fontFamily: 'Poppins_600SemiBold', color: '#dc2626' },
     emptyList: { padding: Spacing.xl, alignItems: 'center' },
     emptyListTxt: { fontSize: FontSize.sm, fontFamily: 'Poppins_400Regular' },
     // kept for backward compat but no longer used in rendering
@@ -515,9 +533,9 @@ const styles = StyleSheet.create({
     listAmount: { fontSize: FontSize.sm, fontFamily: 'Poppins_700Bold' },
     txExpandedInline: { marginTop: Spacing.sm, borderTopWidth: 1, borderTopColor: 'rgba(83,96,132,0.1)', paddingTop: Spacing.sm },
     txExpandedDetail: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', marginBottom: Spacing.sm },
-    txExpandedActions: { flexDirection: 'row', gap: Spacing.sm },
-    inlineEditBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(106,111,248,0.1)', paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: BorderRadius.full },
-    inlineEditTxt: { fontSize: FontSize.xs, fontFamily: 'Poppins_600SemiBold', color: '#6A6FF8' },
-    inlineDeleteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(220,38,38,0.08)', paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: BorderRadius.full },
-    inlineDeleteTxt: { fontSize: FontSize.xs, fontFamily: 'Poppins_600SemiBold', color: '#dc2626' },
+    txExpandedActions: { flexDirection: 'row', gap: Spacing.md },
+    inlineEditBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(106,111,248,0.1)', paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: BorderRadius.full },
+    inlineEditTxt: { fontSize: FontSize.sm, fontFamily: 'Poppins_600SemiBold', color: '#6A6FF8' },
+    inlineDeleteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(220,38,38,0.08)', paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: BorderRadius.full },
+    inlineDeleteTxt: { fontSize: FontSize.sm, fontFamily: 'Poppins_600SemiBold', color: '#dc2626' },
 });

@@ -11,8 +11,6 @@ import { useApp } from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Spacing, FontSize, BorderRadius } from '../../constants/theme';
 import { formatCurrency } from '../../utils/currencies';
-import { obdService } from '../../services/obdService';
-import { obdManager } from '../../services/obdManager';
 
 export default function VehiclesScreen() {
     const router = useRouter();
@@ -27,41 +25,7 @@ export default function VehiclesScreen() {
     const [newVehicleType, setNewVehicleType] = useState('gas');
     const [saving, setSaving] = useState(false);
 
-    // OBD settings modal
-    const [showOBDSettings, setShowOBDSettings] = useState(false);
-    const [scanning, setScanning] = useState(false);
-    const [foundDevices, setFoundDevices] = useState([]);
-    const [connecting, setConnecting] = useState(false);
-    const [obdStatus, setObdStatus] = useState('disconnected');
-    const [connectedDeviceName, setConnectedDeviceName] = useState(null);
-    const [elmConnected, setElmConnected] = useState(false);
-    const [ecuConnected, setEcuConnected] = useState(false);
 
-    // Derive saved device from the default vehicle
-    const savedDevice = React.useMemo(() => {
-        const def = vehicles.find(v => v.isDefault === 1);
-        if (def?.obdMacAddress) return { id: def.obdMacAddress, name: def.obdDeviceName || 'ELM327 Scanner' };
-        return null;
-    }, [vehicles]);
-
-    // setSavedDevice is handled via ctxUpdateVehicle — no local state needed
-
-    // Subscribe to OBD state changes
-    useEffect(() => {
-        const onState = ({ status, connectedDeviceName: name, elmConnected: elm, ecuConnected: ecu }) => {
-            setObdStatus(status);
-            setConnectedDeviceName(name || null);
-            setElmConnected(!!elm);
-            setEcuConnected(!!ecu);
-        };
-        obdManager.addListener(onState);
-        // Reflect current state
-        setObdStatus(obdManager.status);
-        setConnectedDeviceName(obdManager.connectedDeviceName);
-        setElmConnected(obdManager.elmConnected);
-        setEcuConnected(obdManager.ecuConnected);
-        return () => obdManager.removeListener(onState);
-    }, []);
 
     const handleAddVehicle = async () => {
         if (!newVehicleName.trim()) {
@@ -76,71 +40,11 @@ export default function VehiclesScreen() {
         setShowAddModal(false);
     };
 
-    const handleScan = async () => {
-        setScanning(true);
-        setFoundDevices([]);
-        try {
-            await obdService.scanForDevices((device) => {
-                setFoundDevices(prev => {
-                    if (prev.find(d => d.id === device.id)) return prev;
-                    return [...prev, device];
-                });
-            }, 12000);
-        } catch (e) {
-            Alert.alert('Scan Failed', e.message);
-        }
-        setScanning(false);
-    };
-
-    const handleConnect = async (device) => {
-        const defaultVehicle = vehicles.find(v => v.isDefault === 1);
-        if (!defaultVehicle) {
-            Alert.alert('No Default Vehicle', 'Please set a vehicle as default before connecting an OBD scanner.');
-            return;
-        }
-        setConnecting(true);
-        // Enforce 32-second UI timeout (slightly more than the 30s in service)
-        const uiTimeout = setTimeout(() => {
-            setConnecting(false);
-            Alert.alert('Connection Timed Out', 'Could not connect within 30 seconds. Make sure the OBD scanner is plugged in, Bluetooth is on, and the ignition is in the ON position.');
-        }, 32000);
-        try {
-            // Save the scanner ID to this vehicle (only one device allowed)
-            const updated = { ...defaultVehicle, obdMacAddress: device.id, obdDeviceName: device.name };
-            await ctxUpdateVehicle(updated);
-            obdManager.currentVehicle = updated;
-            const success = await obdManager.connectToVehicle(updated, device);
-            if (!success) {
-                Alert.alert('Connection Failed', `Could not connect to ${device.name}. Check that the OBD scanner is plugged into the OBD port and Bluetooth is on.`);
-            } else {
-                setFoundDevices([]);
-            }
-        } catch (e) {
-            Alert.alert('Error', e.message);
-        }
-        clearTimeout(uiTimeout);
-        setConnecting(false);
-    };
-
-    const handleDisconnect = async () => {
-        Alert.alert(
-            'Disconnect Scanner',
-            'This will save your trip data and disconnect the scanner.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Disconnect', style: 'destructive', onPress: () => obdManager.disconnect() },
-            ]
-        );
-    };
-
     const purple = colors.primary;
     const textPrimary = colors.textPrimary;
     const textSec = colors.textSecondary;
     const border = colors.border;
     const cardBg = colors.card;
-
-    const isConnected = obdStatus === 'connected';
-    const isConnecting = obdStatus === 'connecting';
 
     return (
         <View style={[s.container, { backgroundColor: colors.background, paddingTop: Platform.OS === 'android' ? insets.top : 0 }]}>
@@ -156,14 +60,12 @@ export default function VehiclesScreen() {
                 <Rect x="0" y="0" width={screenWidth} height={screenHeight} fill="url(#bgGradV)" />
             </Svg>
 
-            <View style={s.dragHandle}>
-                <View style={[s.dragBar, { backgroundColor: colors.textSecondary }]} />
-            </View>
+            <View style={[s.handle, { backgroundColor: colors.border }]} />
 
             {/* Header */}
             <View style={s.header}>
                 <TouchableOpacity
-                    onPress={() => router.back()}
+                    onPress={() => { if (router.canDismiss?.()) { router.dismiss(); } else { router.back(); } }}
                     style={[s.headerIconBtn, { backgroundColor: cardBg, borderColor: border, borderWidth: 1 }]}
                 >
                     <Ionicons name="arrow-back" size={20} color={purple} />
@@ -179,73 +81,17 @@ export default function VehiclesScreen() {
                     </View>
                 </View>
 
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <TouchableOpacity
-                        onPress={() => setShowOBDSettings(true)}
-                        style={[s.headerIconBtn, { backgroundColor: isConnected ? 'rgba(16,185,129,0.15)' : cardBg, borderColor: isConnected ? colors.emerald : border, borderWidth: 1 }]}
-                    >
-                        <Ionicons name="settings-outline" size={19} color={isConnected ? colors.emerald : purple} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        onPress={() => setShowAddModal(true)}
-                        style={[s.headerIconBtn, { backgroundColor: cardBg, borderColor: border, borderWidth: 1 }]}
-                    >
-                        <Ionicons name="add" size={22} color={purple} />
-                    </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                    onPress={() => setShowAddModal(true)}
+                    style={[s.headerIconBtn, { backgroundColor: cardBg, borderColor: border, borderWidth: 1 }]}
+                >
+                    <Ionicons name="add" size={22} color={purple} />
+                </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
 
-                {/* ── OBD Connection Banner ── */}
-                <View style={[s.obdBanner, {
-                    backgroundColor: isConnected ? 'rgba(16,185,129,0.08)' : cardBg,
-                    borderColor: isConnected ? colors.emerald : border,
-                }]}>
-                    <View style={[s.obdIconWrap, {
-                        backgroundColor: isConnected ? 'rgba(16,185,129,0.15)' : `${purple}15`,
-                    }]}>
-                        {isConnecting ? (
-                            <ActivityIndicator size="small" color={purple} />
-                        ) : (
-                            <Ionicons
-                                name={isConnected ? 'bluetooth' : 'bluetooth-outline'}
-                                size={20}
-                                color={isConnected ? colors.emerald : purple}
-                            />
-                        )}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={[s.obdBannerTitle, { color: textPrimary }]}>
-                            {isConnected ? 'OBD Connected' : isConnecting ? 'Connecting...' : 'OBD Scanner'}
-                        </Text>
-                        <Text style={[s.obdBannerSub, { color: textSec }]} numberOfLines={1}>
-                            {isConnected
-                                ? connectedDeviceName || 'Scanner active'
-                                : vehicles.some(v => v.obdMacAddress)
-                                    ? 'Tap Connect to reconnect scanner'
-                                    : 'Connect a scanner to see live data'}
-                        </Text>
-                    </View>
-                    {isConnected ? (
-                        <TouchableOpacity
-                            style={[s.obdBannerBtn, { backgroundColor: colors.emerald }]}
-                            onPress={() => router.push('/obd-live-data')}
-                        >
-                            <Text style={s.obdBannerBtnTxt}>See live data</Text>
-                        </TouchableOpacity>
-                    ) : (
-                        <TouchableOpacity
-                            style={[s.obdBannerBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: purple }]}
-                            onPress={() => setShowOBDSettings(true)}
-                            disabled={isConnecting}
-                        >
-                            <Text style={[s.obdBannerBtnTxt, { color: purple }]}>
-                                {isConnecting ? '...' : 'Connect'}
-                            </Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
+
 
                 {/* ── Vehicle Cards ── */}
                 {vehicles && vehicles.length > 0 ? (
@@ -285,12 +131,6 @@ export default function VehiclesScreen() {
                                                 {v.isDefault === 1 && (
                                                     <View style={[s.defaultBadge, { backgroundColor: colors.emeraldLight }]}>
                                                         <Text style={[s.defaultBadgeTxt, { color: colors.emeraldDark }]}>Default</Text>
-                                                    </View>
-                                                )}
-                                                {v.obdMacAddress && (
-                                                    <View style={[s.defaultBadge, { backgroundColor: `${purple}15` }]}>
-                                                        <Ionicons name="bluetooth" size={9} color={purple} />
-                                                        <Text style={[s.defaultBadgeTxt, { color: purple }]}>OBD</Text>
                                                     </View>
                                                 )}
                                             </View>
@@ -371,210 +211,7 @@ export default function VehiclesScreen() {
                 <View style={{ height: 100 }} />
             </ScrollView>
 
-            {/* ── OBD Settings Modal ── */}
-            <Modal visible={showOBDSettings} transparent animationType="slide" onRequestClose={() => setShowOBDSettings(false)}>
-                <View style={s.slideOverlay}>
-                    <View style={[s.slideBox, { backgroundColor: cardBg }]}>
-                        <View style={s.slideHandle}>
-                            <View style={[s.slideBar, { backgroundColor: colors.border }]} />
-                        </View>
 
-                        <View style={s.slideHeader}>
-                            <View style={[s.cardIconWrap, { backgroundColor: `${purple}15` }]}>
-                                <Ionicons name="bluetooth" size={18} color={purple} />
-                            </View>
-                            <Text style={[s.modalTitle, { color: textPrimary, flex: 1 }]}>OBD Scanner Settings</Text>
-                            <TouchableOpacity
-                                onPress={() => setShowOBDSettings(false)}
-                                style={[s.modalClose, { backgroundColor: colors.inputBg }]}
-                            >
-                                <Ionicons name="close" size={18} color={textSec} />
-                            </TouchableOpacity>
-                        </View>
-
-                        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" scrollEventThrottle={16}>
-
-                            {/* ── Status Pills: ELM + ECU ── */}
-                            <View style={s.statusRow}>
-                                <View style={[s.statusPill, {
-                                    backgroundColor: elmConnected ? 'rgba(16,185,129,0.10)' : 'rgba(107,114,128,0.10)',
-                                    borderColor: elmConnected ? '#10B981' : 'rgba(107,114,128,0.3)',
-                                }]}>
-                                    <View style={[s.statusDotSm, { backgroundColor: elmConnected ? '#10B981' : '#6B7280' }]} />
-                                    <View>
-                                        <Text style={[s.statusPillTitle, { color: elmConnected ? '#10B981' : textSec }]}>ELM327</Text>
-                                        <Text style={[s.statusPillSub, { color: textSec }]}>
-                                            {elmConnected ? 'Connected' : isConnecting ? 'Connecting…' : 'Disconnected'}
-                                        </Text>
-                                    </View>
-                                </View>
-                                <View style={[s.statusPill, {
-                                    backgroundColor: ecuConnected ? 'rgba(16,185,129,0.10)' : 'rgba(107,114,128,0.10)',
-                                    borderColor: ecuConnected ? '#10B981' : 'rgba(107,114,128,0.3)',
-                                }]}>
-                                    <View style={[s.statusDotSm, { backgroundColor: ecuConnected ? '#10B981' : '#6B7280' }]} />
-                                    <View>
-                                        <Text style={[s.statusPillTitle, { color: ecuConnected ? '#10B981' : textSec }]}>ECU</Text>
-                                        <Text style={[s.statusPillSub, { color: textSec }]}>
-                                            {ecuConnected ? 'Responding' : elmConnected ? 'Not responding' : 'Waiting'}
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            {/* ── Saved / Active Device ── */}
-                            {savedDevice && (
-                                <>
-                                    <Text style={[s.sectionLabel, { color: textPrimary, marginBottom: 8 }]}>Saved Scanner</Text>
-                                    <View style={[s.savedDeviceRow, {
-                                        backgroundColor: isConnected ? 'rgba(16,185,129,0.06)' : colors.inputBg,
-                                        borderColor: isConnected ? '#10B981' : border,
-                                    }]}>
-                                        <View style={[s.deviceIconWrap, { backgroundColor: isConnected ? 'rgba(16,185,129,0.15)' : `${purple}15` }]}>
-                                            {isConnecting ? (
-                                                <ActivityIndicator size="small" color={purple} />
-                                            ) : (
-                                                <Ionicons name="bluetooth" size={16} color={isConnected ? '#10B981' : purple} />
-                                            )}
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={[s.deviceName, { color: textPrimary }]}>{savedDevice.name}</Text>
-                                            <Text style={[s.deviceId, { color: textSec }]} numberOfLines={1}>
-                                                {Platform.OS === 'ios' ? `UUID: ${savedDevice.id}` : `MAC: ${savedDevice.id}`}
-                                            </Text>
-                                        </View>
-                                        {isConnected ? (
-                                            <TouchableOpacity
-                                                style={[s.devActionBtn, { backgroundColor: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.3)' }]}
-                                                onPress={handleDisconnect}
-                                            >
-                                                <Text style={[s.devActionBtnTxt, { color: '#EF4444' }]}>Disconnect</Text>
-                                            </TouchableOpacity>
-                                        ) : (
-                                            <TouchableOpacity
-                                                style={[s.devActionBtn, { backgroundColor: `${purple}15`, borderColor: `${purple}40` }]}
-                                                onPress={() => handleConnect(savedDevice)}
-                                                disabled={connecting || isConnecting}
-                                            >
-                                                {(connecting || isConnecting) ? (
-                                                    <ActivityIndicator size="small" color={purple} />
-                                                ) : (
-                                                    <Text style={[s.devActionBtnTxt, { color: purple }]}>Connect</Text>
-                                                )}
-                                            </TouchableOpacity>
-                                        )}
-                                    </View>
-                                </>
-                            )}
-
-                            <View style={[s.divider, { backgroundColor: border, marginVertical: Spacing.lg }]} />
-
-                            {/* ── Scan for devices ── */}
-                            <Text style={[s.sectionLabel, { color: textPrimary }]}>Change Scanner</Text>
-                            <Text style={[s.sectionDesc, { color: textSec }]}>
-                                Tap Scan to find nearby Bluetooth OBD adapters. Make sure your ELM327 is plugged into the OBD-II port.
-                            </Text>
-
-                            <TouchableOpacity
-                                style={[s.scanBtn, { borderColor: purple }]}
-                                onPress={handleScan}
-                                disabled={scanning || connecting}
-                            >
-                                {scanning ? (
-                                    <ActivityIndicator size="small" color={purple} />
-                                ) : (
-                                    <Ionicons name="search" size={16} color={purple} />
-                                )}
-                                <Text style={[s.scanBtnTxt, { color: purple }]}>
-                                    {scanning ? 'Scanning... (12s)' : 'Scan for Devices'}
-                                </Text>
-                            </TouchableOpacity>
-
-                            {foundDevices.length > 0 && (
-                                <View style={{ marginTop: Spacing.md, gap: Spacing.sm }}>
-                                    {foundDevices.map(d => (
-                                        <TouchableOpacity
-                                            key={d.id}
-                                            style={[s.deviceItem, {
-                                                backgroundColor: colors.inputBg,
-                                                borderColor: savedDevice?.id === d.id ? purple : border,
-                                                borderWidth: savedDevice?.id === d.id ? 1.5 : 1,
-                                            }]}
-                                            onPress={() => handleConnect(d)}
-                                            disabled={connecting}
-                                        >
-                                            <View style={[s.deviceIconWrap, { backgroundColor: `${purple}15` }]}>
-                                                <Ionicons name="bluetooth" size={16} color={purple} />
-                                            </View>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={[s.deviceName, { color: textPrimary }]}>{d.name}</Text>
-                                                <Text style={[s.deviceId, { color: textSec }]} numberOfLines={1}>
-                                                    {Platform.OS === 'ios' ? `UUID: ${d.id}` : `MAC: ${d.id}`}
-                                                </Text>
-                                            </View>
-                                            {connecting ? (
-                                                <ActivityIndicator size="small" color={purple} />
-                                            ) : (
-                                                <View style={[s.devActionBtn, { backgroundColor: `${purple}15`, borderColor: `${purple}40` }]}>
-                                                    <Text style={[s.devActionBtnTxt, { color: purple }]}>Use</Text>
-                                                </View>
-                                            )}
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            )}
-
-                            {foundDevices.length === 0 && !scanning && (
-                                <Text style={[s.noDevicesTxt, { color: textSec }]}>
-                                    {savedDevice ? 'Tap "Scan for Devices" to find a different adapter.' : 'No devices found yet. Tap "Scan for Devices" to search.'}
-                                </Text>
-                            )}
-
-                            <View style={[s.divider, { backgroundColor: border, marginVertical: Spacing.xl }]} />
-
-                            {/* Default vehicle list */}
-                            <Text style={[s.sectionLabel, { color: textPrimary }]}>Default Vehicle</Text>
-                            <Text style={[s.sectionDesc, { color: textSec }]}>
-                                OBD data will be linked to this vehicle. Tap the star to change it.
-                            </Text>
-
-                            {vehicles.map(v => (
-                                <View key={v.id} style={[s.vehicleRow, { borderColor: border }]}>
-                                    <View style={[s.vehicleRowIcon, {
-                                        backgroundColor: v.type === 'ev' ? 'rgba(16,185,129,0.12)' : `${purple}15`
-                                    }]}>
-                                        {v.type === 'ev'
-                                            ? <Ionicons name="flash" size={16} color={colors.emerald} />
-                                            : <MaterialCommunityIcons name="gas-station" size={16} color={purple} />
-                                        }
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={[s.vehicleRowName, { color: textPrimary }]}>{v.name}</Text>
-                                        <Text style={[s.vehicleRowType, { color: textSec }]}>
-                                            {v.type === 'ev' ? 'Electric' : 'Gasoline'}{v.obdMacAddress ? ' · Scanner saved' : ''}
-                                        </Text>
-                                    </View>
-                                    {v.isDefault === 1 ? (
-                                        <View style={[s.defaultBadgeRow, { backgroundColor: colors.emeraldLight }]}>
-                                            <Ionicons name="checkmark-circle" size={14} color={colors.emeraldDark} />
-                                            <Text style={[s.defaultBadgeRowTxt, { color: colors.emeraldDark }]}>Default</Text>
-                                        </View>
-                                    ) : (
-                                        <TouchableOpacity
-                                            style={[s.setDefaultBtn, { borderColor: border }]}
-                                            onPress={() => setDefaultVehicle(v.id)}
-                                        >
-                                            <Text style={[s.setDefaultTxt, { color: textSec }]}>Set default</Text>
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
-                            ))}
-
-                            <View style={{ height: 48 }} />
-                        </ScrollView>
-                    </View>
-                </View>
-            </Modal>
 
             {/* ── Add Vehicle Modal ── */}
             <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={() => setShowAddModal(false)}>
@@ -644,12 +281,17 @@ export default function VehiclesScreen() {
 
 const s = StyleSheet.create({
     container: { flex: 1 },
-    dragHandle: { alignItems: 'center', paddingTop: Platform.OS === 'ios' ? 12 : 8, paddingBottom: 4 },
-    dragBar: { width: 36, height: 4, borderRadius: 2, opacity: 0.35 },
-
+    handle: {
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: "rgba(83,96,132,0.2)",
+        alignSelf: "center",
+        marginTop: Spacing.md,
+    },
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: Spacing.lg, paddingTop: Platform.OS === 'ios' ? 20 : 16, paddingBottom: Spacing.md,
+        paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
     },
     headerIconBtn: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
     headerCenter: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
@@ -659,16 +301,7 @@ const s = StyleSheet.create({
 
     scrollContent: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm, paddingBottom: Platform.OS === 'android' ? 90 : 60 },
 
-    // OBD Banner
-    obdBanner: {
-        flexDirection: 'row', alignItems: 'center', padding: Spacing.md,
-        borderRadius: 16, borderWidth: 1, marginBottom: Spacing.lg, gap: 12,
-    },
-    obdIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    obdBannerTitle: { fontFamily: 'Poppins_600SemiBold', fontSize: FontSize.sm },
-    obdBannerSub: { fontFamily: 'Poppins_400Regular', fontSize: FontSize.xs, marginTop: 1 },
-    obdBannerBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: BorderRadius.full },
-    obdBannerBtnTxt: { color: '#fff', fontFamily: 'Poppins_600SemiBold', fontSize: FontSize.xs },
+
 
     // Vehicle cards
     vehicleCard: {
@@ -719,53 +352,5 @@ const s = StyleSheet.create({
     saveBtn: { flex: 2, paddingVertical: Spacing.md, borderRadius: BorderRadius.full, alignItems: 'center' },
     saveTxt: { color: '#fff', fontSize: FontSize.sm, fontFamily: 'Poppins_700Bold' },
 
-    // OBD Settings slide-up modal
-    slideOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
-    slideBox: { width: '100%', maxHeight: '88%', borderTopLeftRadius: 32, borderTopRightRadius: 32, paddingHorizontal: Spacing.lg, paddingTop: 8, paddingBottom: 0 },
-    slideHandle: { alignItems: 'center', marginBottom: Spacing.md },
-    slideBar: { width: 40, height: 4, borderRadius: 2 },
-    slideHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: Spacing.lg },
 
-    connectedBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: Spacing.md, borderRadius: 12, borderWidth: 1, marginBottom: Spacing.lg },
-    connectedTxt: { fontFamily: 'Poppins_600SemiBold', fontSize: FontSize.sm },
-
-    sectionLabel: { fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm, marginBottom: 4 },
-    sectionDesc: { fontFamily: 'Poppins_400Regular', fontSize: FontSize.sm, marginBottom: Spacing.md, lineHeight: 20 },
-
-    scanBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: Spacing.md, borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed', gap: 8 },
-    scanBtnTxt: { fontFamily: 'Poppins_600SemiBold', fontSize: FontSize.sm },
-    noDevicesTxt: { fontFamily: 'Poppins_400Regular', fontSize: FontSize.sm, textAlign: 'center', marginTop: Spacing.md },
-
-    deviceItem: { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, borderRadius: 14, borderWidth: 1, gap: 12 },
-    deviceIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-    deviceName: { fontFamily: 'Poppins_600SemiBold', fontSize: FontSize.sm },
-    deviceId: { fontFamily: 'Poppins_400Regular', fontSize: 11, marginTop: 1 },
-
-    divider: { height: 1, opacity: 0.5 },
-
-    vehicleRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.md, borderBottomWidth: 1, gap: 12 },
-    vehicleRowIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-    vehicleRowName: { fontFamily: 'Poppins_600SemiBold', fontSize: FontSize.sm },
-    vehicleRowType: { fontFamily: 'Poppins_400Regular', fontSize: 11, marginTop: 1 },
-    defaultBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: BorderRadius.full },
-    defaultBadgeRowTxt: { fontFamily: 'Poppins_600SemiBold', fontSize: 11 },
-    setDefaultBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.full, borderWidth: 1 },
-    setDefaultTxt: { fontFamily: 'Poppins_500Medium', fontSize: 11 },
-
-    // ELM/ECU status pills
-    statusRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.lg },
-    statusPill: {
-        flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10,
-        padding: Spacing.md, borderRadius: 14, borderWidth: 1,
-    },
-    statusDotSm: { width: 8, height: 8, borderRadius: 4 },
-    statusPillTitle: { fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm },
-    statusPillSub: { fontFamily: 'Poppins_400Regular', fontSize: 11, marginTop: 1 },
-
-    // Saved device row
-    savedDeviceRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: Spacing.md, borderRadius: 14, borderWidth: 1, marginBottom: 4 },
-
-    // Action buttons on device rows
-    devActionBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-    devActionBtnTxt: { fontFamily: 'Poppins_600SemiBold', fontSize: 12 },
 });

@@ -25,6 +25,7 @@ import Svg, {
 import { useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useApp } from "../context/AppContext";
 import { scanReceipt, scanReceiptFromText } from "../services/aiReceiptScanner";
@@ -45,11 +46,17 @@ import {
     updateReceiptScanSession,
 } from "../services/receiptScanSession";
 import EdgeDetectionModal from "../components/EdgeDetectionModal";
-import { spendingCategories } from "../utils/categories";
+import { spendingCategories, getAccountTypeById } from "../utils/categories";
+import { pickerStore } from "../utils/pickerStore";
 import { generateId } from "../utils/helpers";
 import { Colors, Spacing, FontSize, BorderRadius } from "../constants/theme";
 import { useTheme } from "../context/ThemeContext";
 import { formatCurrency } from "../utils/currencies";
+
+
+import FastInput from '../components/FastInput';
+// --------------------------------------------
+
 
 const FAST_SCAN_STORAGE_KEY = "receipt_fast_scan_enabled";
 
@@ -178,11 +185,21 @@ export default function ReceiptScanner() {
     const [pendingCropAsset, setPendingCropAsset] = useState(null);
 
     const isMountedRef = useRef(true);
+    const savingRef = useRef(false);
     const activeScanTaskRef = useRef(null);
     const allowLeaveRef = useRef(false);
     const allowBackgroundRef = useRef(false);
     const promptVisibleRef = useRef(false);
     const imageUri = imageAsset?.uri || null;
+
+    useEffect(() => {
+        const unsubscribe = pickerStore.subscribe((key, value) => {
+            if (key === 'receiptAssetId' || key === 'selectedAssetId' || key === 'assetId') {
+                setSelectedAssetId(value || null);
+            }
+        });
+        return unsubscribe;
+    }, []);
 
 
 
@@ -452,7 +469,7 @@ export default function ReceiptScanner() {
                 // If total is missing but items exist, derive it from item prices.
                 if (!hasTotal && hasItems) {
                     const derived = parsedData.items.reduce(
-                        (s, it) => s + (it.price || 0) * (it.quantity || 1),
+                        (s, it) => s + (it.price || 0),
                         0,
                     );
                     parsedData.total = parsedData.total || derived;
@@ -677,15 +694,23 @@ export default function ReceiptScanner() {
     };
 
     const handleBackPress = () => {
+        const safeBack = () => {
+            if (router.canGoBack?.()) {
+                router.back();
+            } else {
+                router.replace('/(tabs)');
+            }
+        };
+
         const currentTaskId = resolveActiveTaskId();
         if (!currentTaskId) {
-            router.back();
+            safeBack();
             return;
         }
 
         showLeavePrompt(() => {
             allowLeaveRef.current = true;
-            router.back();
+            safeBack();
         });
     };
 
@@ -753,19 +778,41 @@ export default function ReceiptScanner() {
     };
 
     const handleSave = async () => {
+        if (savingRef.current) return;
         const amt = parseFloat(total);
         if (!amt || amt <= 0) {
             Alert.alert("Error", "No valid amount to save.");
             return;
         }
+        savingRef.current = true;
         try {
+            const txId = generateId();
+            const linkedAsset = selectedAssetId ? assets.find((a) => a.id === selectedAssetId) : null;
+            const effectiveCurrency = linkedAsset?.currency || currency;
+
+            let permanentPhotoUri = imageUri;
+            if (imageUri && FileSystem.documentDirectory) {
+                try {
+                    const receiptsDir = `${FileSystem.documentDirectory}receipts/`;
+                    const dirInfo = await FileSystem.getInfoAsync(receiptsDir);
+                    if (!dirInfo.exists) {
+                        await FileSystem.makeDirectoryAsync(receiptsDir, { intermediates: true });
+                    }
+                    const destUri = `${receiptsDir}receipt_${txId}.jpg`;
+                    await FileSystem.copyAsync({ from: imageUri, to: destUri });
+                    permanentPhotoUri = destUri;
+                } catch (copyErr) {
+                    console.warn("Could not copy receipt image to documentDirectory:", copyErr);
+                }
+            }
+
             const tx = {
-                id: generateId(),
+                id: txId,
                 type: "spending",
                 amount: amt,
                 category,
                 description: storeName || "Receipt Scan",
-                date: date ? new Date(date).toISOString() : new Date().toISOString(),
+                date: date ? new Date(date.includes("T") ? date : `${date}T12:00:00`).toISOString() : new Date().toISOString(),
                 items: items.map((item) => {
                     const quantity = Math.max(1, parseEditableNumber(item.quantity, 1));
                     const lineTotal = parseEditableNumber(item.price, 0);
@@ -775,23 +822,21 @@ export default function ReceiptScanner() {
                         price: quantity > 0 ? lineTotal / quantity : lineTotal,
                     };
                 }),
-                photos: imageUri ? [imageUri] : [],
+                photos: permanentPhotoUri ? [permanentPhotoUri] : [],
+                paymentMethod: selectedAssetId ? "asset" : "cash",
                 assetId: selectedAssetId || null,
-                currency,
+                currency: effectiveCurrency,
             };
             await addTransaction(tx);
-            // Deduct from the selected asset if one was chosen
-            if (selectedAssetId) {
-                const asset = assets.find((a) => a.id === selectedAssetId);
-                if (asset) {
-                    await updateAsset({ ...asset, balance: (asset.balance || 0) - amt });
-                }
+            if (linkedAsset) {
+                await updateAsset({ ...linkedAsset, balance: (linkedAsset.balance || 0) - amt });
             }
             await clearReceiptScanSession();
             Alert.alert("Saved!", "Transaction saved successfully.", [
                 { text: "OK", onPress: () => router.back() },
             ]);
         } catch (err) {
+            savingRef.current = false;
             Alert.alert(
                 "Save Failed",
                 err?.message || "Could not save transaction. Please try again.",
@@ -1017,16 +1062,38 @@ export default function ReceiptScanner() {
                                 <Ionicons name="flash" size={18} color="#F59E0B" />
                             </View>
                             <View style={styles.fastScanTextCol}>
-                                <Text
-                                    style={[styles.fastScanTitle, { color: colors.textPrimary }]}
-                                >
-                                    Instant Scan
-                                </Text>
+                                <View style={styles.fastScanTitleRow}>
+                                    <Text
+                                        style={[styles.fastScanTitle, { color: colors.textPrimary }]}
+                                    >
+                                        Instant Scan
+                                    </Text>
+                                    <TouchableOpacity
+                                        onPress={() => router.push('/ocr-info')}
+                                        style={[
+                                            styles.ocrInfoBtn,
+                                            {
+                                                backgroundColor: isDark
+                                                    ? "rgba(251,191,36,0.22)"
+                                                    : "rgba(245,158,11,0.14)",
+                                                borderColor: isDark
+                                                    ? "rgba(251,191,36,0.4)"
+                                                    : "rgba(245,158,11,0.3)",
+                                            },
+                                        ]}
+                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                        activeOpacity={0.7}
+                                        accessibilityLabel="Learn what OCR is and how to get accurate results"
+                                        accessibilityRole="button"
+                                    >
+                                        <Text style={styles.ocrInfoBtnText}>i</Text>
+                                    </TouchableOpacity>
+                                </View>
                                 <Text
                                     style={[styles.fastScanSubtitle, { color: colors.textMuted }]}
                                 >
                                     {fastScanEnabled
-                                        ? "OCR extracts text directly without AI model, but less accurate."
+                                        ? "OCR extracts text directly without AI model, but less accurate"
                                         : "Image sent to AI vision model directly, slower but more accurate"}
                                 </Text>
                             </View>
@@ -1157,7 +1224,7 @@ export default function ReceiptScanner() {
                         <Text style={[styles.label, { color: colors.textSecondary }]}>
                             Store Name
                         </Text>
-                        <TextInput
+                        <FastInput
                             style={[
                                 styles.input,
                                 {
@@ -1174,7 +1241,7 @@ export default function ReceiptScanner() {
                         <Text style={[styles.label, { color: colors.textSecondary }]}>
                             Date
                         </Text>
-                        <TextInput
+                        <FastInput
                             style={[
                                 styles.input,
                                 {
@@ -1241,7 +1308,7 @@ export default function ReceiptScanner() {
                         </Text>
                         {items.map((item, i) => (
                             <View key={i} style={styles.itemRow}>
-                                <TextInput
+                                <FastInput
                                     style={[
                                         styles.input,
                                         {
@@ -1257,7 +1324,7 @@ export default function ReceiptScanner() {
                                     placeholder="Item"
                                     placeholderTextColor={colors.textMuted}
                                 />
-                                <TextInput
+                                <FastInput
                                     style={[
                                         styles.input,
                                         {
@@ -1275,7 +1342,7 @@ export default function ReceiptScanner() {
                                     placeholder="Qty"
                                     placeholderTextColor={colors.textMuted}
                                 />
-                                <TextInput
+                                <FastInput
                                     style={[
                                         styles.input,
                                         {
@@ -1360,7 +1427,7 @@ export default function ReceiptScanner() {
                                 >
                                     Subtotal
                                 </Text>
-                                <TextInput
+                                <FastInput
                                     style={[
                                         styles.input,
                                         {
@@ -1395,7 +1462,7 @@ export default function ReceiptScanner() {
                                 >
                                     Tax
                                 </Text>
-                                <TextInput
+                                <FastInput
                                     style={[
                                         styles.input,
                                         {
@@ -1432,7 +1499,7 @@ export default function ReceiptScanner() {
                                 >
                                     Service Charge
                                 </Text>
-                                <TextInput
+                                <FastInput
                                     style={[
                                         styles.input,
                                         {
@@ -1469,7 +1536,7 @@ export default function ReceiptScanner() {
                             <Text style={[styles.totalLabel, { color: colors.textPrimary }]}>
                                 Total
                             </Text>
-                            <TextInput
+                            <FastInput
                                 style={[
                                     styles.input,
                                     {
@@ -1487,135 +1554,40 @@ export default function ReceiptScanner() {
                             />
                         </View>
 
-                        <Text style={[styles.label, { color: colors.textSecondary }]}>
-                            Pay from Account{" "}
-                            <Text
-                                style={{
-                                    color: colors.textMuted,
-                                    fontFamily: "Poppins_400Regular",
-                                }}
-                            >
-                                (optional)
-                            </Text>
-                        </Text>
-                        {assets.length === 0 ? (
-                            <Text style={[styles.noAssetsHint, { color: colors.textMuted }]}>
-                                No accounts found. Add one in Settings → Assets.
-                            </Text>
-                        ) : (
-                            <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                style={{ marginBottom: Spacing.sm }}
-                            >
-                                <View style={styles.paymentRow}>
+                        {assets.length > 0 && (() => {
+                            const selAsset = selectedAssetId ? assets.find(a => a.id === selectedAssetId) : null;
+                            const selType = selAsset ? getAccountTypeById(selAsset.type) : null;
+                            return (
+                                <View style={{ marginTop: Spacing.xs }}>
+                                    <Text style={[styles.label, { color: colors.textSecondary }]}>Pay from Account (Optional)</Text>
                                     <TouchableOpacity
-                                        style={[
-                                            styles.paymentChip,
-                                            {
-                                                backgroundColor: colors.inputBg,
-                                                borderColor: colors.border,
-                                            },
-                                            selectedAssetId === null && [
-                                                styles.paymentChipActive,
-                                                {
-                                                    backgroundColor: isDark
-                                                        ? "rgba(255,102,0,0.2)"
-                                                        : "rgba(255,102,0,0.1)",
-                                                    borderColor: colors.primary,
-                                                },
-                                            ],
-                                        ]}
-                                        onPress={() => requestAnimationFrame(() => setSelectedAssetId(null))}
+                                        style={[styles.selectorRow, { backgroundColor: colors.inputBg }]}
+                                        onPress={() => router.push({
+                                            pathname: '/pick-account',
+                                            params: { label: 'pay', currentAssetId: selectedAssetId || '', returnKey: 'receiptAssetId', allowClear: 'true' }
+                                        })}
                                         activeOpacity={0.8}
                                     >
-                                        <Ionicons
-                                            name="close-circle-outline"
-                                            size={14}
-                                            color={
-                                                selectedAssetId === null
-                                                    ? colors.primary
-                                                    : colors.textMuted
-                                            }
-                                        />
-                                        <Text
-                                            style={[
-                                                styles.paymentChipText,
-                                                { color: colors.textSecondary },
-                                                selectedAssetId === null && [
-                                                    styles.paymentChipTextActive,
-                                                    { color: colors.primary },
-                                                ],
-                                            ]}
-                                        >
-                                            None
-                                        </Text>
+                                        <View style={[styles.selectorIcon, { backgroundColor: 'rgba(255,102,0,0.12)' }]}>
+                                            <Ionicons name={selType?.icon || 'wallet-outline'} size={20} color={colors.primary} />
+                                        </View>
+                                        <View style={styles.selectorText}>
+                                            {selAsset ? (
+                                                <>
+                                                    <Text style={[styles.selectorPrimary, { color: colors.textPrimary }]}>{selAsset.name}</Text>
+                                                    <Text style={[styles.selectorSecondary, { color: colors.textSecondary }]}>
+                                                        {formatCurrency(selAsset.balance, selAsset.currency || currency)}
+                                                    </Text>
+                                                </>
+                                            ) : (
+                                                <Text style={[styles.selectorPrimary, { color: colors.textMuted }]}>No account linked (cash)</Text>
+                                            )}
+                                        </View>
+                                        <Ionicons name="chevron-forward" size={16} color={colors.primary} />
                                     </TouchableOpacity>
-                                    {assets.map((a) => (
-                                        <TouchableOpacity
-                                            key={a.id}
-                                            style={[
-                                                styles.paymentChip,
-                                                {
-                                                    backgroundColor: colors.inputBg,
-                                                    borderColor: colors.border,
-                                                },
-                                                selectedAssetId === a.id && [
-                                                    styles.paymentChipActive,
-                                                    {
-                                                        backgroundColor: isDark
-                                                            ? "rgba(255,102,0,0.2)"
-                                                            : "rgba(255,102,0,0.1)",
-                                                        borderColor: colors.primary,
-                                                    },
-                                                ],
-                                            ]}
-                                            onPress={() => setSelectedAssetId(a.id)}
-                                            activeOpacity={0.8}
-                                        >
-                                            <Ionicons
-                                                name="card-outline"
-                                                size={14}
-                                                color={
-                                                    selectedAssetId === a.id
-                                                        ? colors.primary
-                                                        : colors.textMuted
-                                                }
-                                            />
-                                            <View>
-                                                <Text
-                                                    style={[
-                                                        styles.paymentChipText,
-                                                        { color: colors.textSecondary },
-                                                        selectedAssetId === a.id && [
-                                                            styles.paymentChipTextActive,
-                                                            { color: colors.primary },
-                                                        ],
-                                                    ]}
-                                                    numberOfLines={1}
-                                                >
-                                                    {a.name}
-                                                </Text>
-                                                <Text
-                                                    style={[
-                                                        styles.paymentChipText,
-                                                        {
-                                                            color: colors.textMuted,
-                                                            fontSize: FontSize.xs,
-                                                            fontFamily: 'Poppins_400Regular',
-                                                        },
-                                                        selectedAssetId === a.id && { color: colors.primary },
-                                                    ]}
-                                                    numberOfLines={1}
-                                                >
-                                                    {formatCurrency(a.balance, a.currency)}
-                                                </Text>
-                                            </View>
-                                        </TouchableOpacity>
-                                    ))}
                                 </View>
-                            </ScrollView>
-                        )}
+                            );
+                        })()}
 
                         <TouchableOpacity
                             style={[
@@ -1864,11 +1836,37 @@ const styles = StyleSheet.create({
         fontFamily: "Poppins_700Bold",
         color: "#1A1040",
     },
+    fastScanTitleRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
     fastScanSubtitle: {
         fontSize: 11,
         fontFamily: "Poppins_400Regular",
         color: "#8B7CC8",
         marginTop: 1,
+        lineHeight: 16,
+    },
+    ocrInlineInfoText: {
+        fontSize: 13,
+        color: "#F59E0B",
+        fontWeight: "bold",
+    },
+    ocrInfoBtn: {
+        width: 17,
+        height: 17,
+        borderRadius: 8.5,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+    },
+    ocrInfoBtnText: {
+        fontSize: 10,
+        fontFamily: "Poppins_700Bold",
+        color: "#F59E0B",
+        lineHeight: 12,
+        includeFontPadding: false,
     },
     optionTitle: {
         fontSize: FontSize.sm,
@@ -2063,28 +2061,21 @@ const styles = StyleSheet.create({
         color: "#ff6600",
         paddingHorizontal: 12,
     },
-    paymentRow: { flexDirection: "row", gap: Spacing.sm },
-    paymentChip: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 5,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderRadius: BorderRadius.full,
-        backgroundColor: "rgba(255,255,255,0.88)",
-        borderWidth: 1,
-        borderColor: "rgba(83,96,132,0.1)",
+    selectorRow: {
+        flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+        padding: Spacing.md, borderRadius: BorderRadius.lg,
     },
-    paymentChipActive: {
-        borderColor: "#ff6600",
-        backgroundColor: "rgba(255,102,0,0.1)",
+    selectorIcon: {
+        width: 44, height: 44, borderRadius: BorderRadius.md,
+        alignItems: 'center', justifyContent: 'center',
     },
-    paymentChipText: {
-        fontSize: FontSize.sm,
-        fontFamily: "Poppins_500Medium",
-        color: "#8B7CC8",
+    selectorText: { flex: 1 },
+    selectorPrimary: {
+        fontSize: FontSize.md, fontFamily: 'Poppins_600SemiBold',
     },
-    paymentChipTextActive: { color: "#ff6600", fontFamily: "Poppins_700Bold" },
+    selectorSecondary: {
+        fontSize: FontSize.sm, fontFamily: 'Poppins_400Regular', marginTop: 1,
+    },
     noAssetsHint: {
         fontSize: FontSize.sm,
         fontFamily: "Poppins_400Regular",

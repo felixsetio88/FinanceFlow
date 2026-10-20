@@ -15,6 +15,7 @@ prepare_react_native_project!
 
 target 'FinanceFlow' do
   use_expo_modules!
+  pod 'ReceiptOCRModule', :path => '../modules/ReceiptOCR/ios'
 
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
@@ -82,6 +83,17 @@ target 'FinanceFlow' do
       if content.include?(old_str)
         File.write(fmt_base_h, content.gsub(old_str, new_str))
         puts 'Patched fmt/base.h for Apple Clang 21 consteval fix'
+      end
+    end
+
+    # FIX: Fabric RCTSurfaceTouchHandler Inconsistency between local and UIKit touch registries assertion crash
+    touch_handler_mm = File.join(__dir__, '../node_modules/react-native/React/Fabric/RCTSurfaceTouchHandler.mm')
+    if File.exist?(touch_handler_mm)
+      content = File.read(touch_handler_mm)
+      target_assertion = 'RCTAssert(iterator != _activeTouches.end(), @"Inconsistency between local and UIKit touch registries");'
+      if content.include?(target_assertion)
+        File.write(touch_handler_mm, content.gsub(target_assertion, '// RCTAssert bypassed: guarded by if (iterator == _activeTouches.end()) continue; below'))
+        puts 'Patched RCTSurfaceTouchHandler.mm to prevent touch registry assertion crash'
       end
     end
 

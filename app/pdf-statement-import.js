@@ -87,7 +87,7 @@ function mappingToParseHints(mapping) {
 export default function PdfStatementImport() {
     const { colors, isDark } = useTheme();
     const router = useRouter();
-    const { bulkAddTransactions, loadData, currency, assets } = useApp();
+    const { bulkAddTransactions, loadData, currency, assets, updateAsset } = useApp();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
     // ── Core state ──────────────────────────────────────────────────────────────
@@ -339,6 +339,7 @@ export default function PdfStatementImport() {
 
     // ── Save ──────────────────────────────────────────────────────────────────────
     const handleSave = async () => {
+        if (saving) return;
         const toSave = transactions.filter(tx => tx.selected);
         if (toSave.length === 0) {
             Alert.alert('Nothing Selected', 'Select at least one transaction to save.');
@@ -346,8 +347,32 @@ export default function PdfStatementImport() {
         }
         setSaving(true);
         try {
-            const rows = toSave.map(({ selected, ...rest }) => ({ ...rest, id: makeImportTransactionId(rest) }));
+            const linkedAsset = selectedAssetId ? assets.find(a => a.id === selectedAssetId) : null;
+            const effectiveCurrency = linkedAsset?.currency || currency || 'USD';
+
+            const rows = toSave.map(({ selected, ...rest }) => ({
+                ...rest,
+                id: makeImportTransactionId(rest),
+                assetId: selectedAssetId || rest.assetId || null,
+                paymentMethod: selectedAssetId ? 'asset' : (rest.paymentMethod || 'bank'),
+                currency: effectiveCurrency,
+            }));
+
             await bulkAddTransactions(rows);
+
+            if (linkedAsset && updateAsset) {
+                const netDelta = rows.reduce((acc, r) => {
+                    const amt = Math.abs(Number(r.amount) || 0);
+                    return acc + (r.type === 'income' ? amt : -amt);
+                }, 0);
+                if (netDelta !== 0) {
+                    await updateAsset({
+                        ...linkedAsset,
+                        balance: (Number(linkedAsset.balance) || 0) + netDelta,
+                    });
+                }
+            }
+
             await loadData();
             Alert.alert(
                 'Import Complete',

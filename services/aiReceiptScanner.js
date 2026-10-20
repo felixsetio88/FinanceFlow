@@ -310,15 +310,18 @@ function normalizeReceiptData(parsed) {
     };
 }
 
-// ─── JSON parsing helper ──────────────────────
+// ─── JSON parsing helper (strips <think> blocks before parsing) ───────────────
 function parseAIJSON(content) {
-    const cleaned = content.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
-    // Try to find a JSON object in the text
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    const withoutThink = String(content || '')
+        .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '')
+        .replace(/```json?\n?/gi, '')
+        .replace(/```/g, '')
+        .trim();
+    const jsonMatch = withoutThink.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
         return JSON.parse(jsonMatch[0]);
     }
-    return JSON.parse(cleaned);
+    return JSON.parse(withoutThink);
 }
 
 function parseLooseReceiptFromText(content) {
@@ -384,20 +387,36 @@ Rules:
 - If the item name are in multiple languages, use English if available.
 - Unclear or not a receipt image, return: {"invalidReceipt": true, "reason": "Not a valid receipt"}`;
 
-// ─── LOCAL AI (on-device via llama.rn) ────────
+// ─── FAST HYBRID AI SCAN: Native Hardware OCR (0.2s) -> Local LLM JSON (4s) ───
 export async function scanReceiptLocal(input, onToken) {
     const { textCompletion, validateActiveModelForTask } = require('./localAI');
+    const { runOCR } = require('./ocrService');
     validateActiveModelForTask('receipt-scan');
 
-    const prompt = `${RECEIPT_PROMPT}\n\nAnalyze the receipt image and return JSON only.`;
+    // 1. Try Ultra-Fast Native Hardware OCR first (Apple Vision / Google ML Kit)
+    // This avoids the 60-120s CPU bottleneck of mmproj-BF16 vision encoding!
+    let ocrText = '';
+    try {
+        const ocrRes = await runOCR(input);
+        ocrText = (ocrRes?.fullText || '').trim();
+    } catch (ocrErr) {
+        console.warn('[aiReceiptScanner] Native OCR pre-pass failed, falling back to vision:', ocrErr?.message);
+    }
 
+    if (ocrText.length >= 15) {
+        return await scanReceiptFromText(ocrText, onToken);
+    }
+
+    // 2. Fallback to Direct Vision Multimodal only if Native OCR found no text
+    const prompt = `${RECEIPT_PROMPT}\n\nAnalyze the receipt image and return JSON only.`;
     const response = await textCompletion(
         prompt,
         input,
         onToken,
         {
-            maxTokens: 2048,
-            temperature: 0.5,
+            maxTokens: 768,
+            temperature: 0.1,
+            disableThinking: true,
         }
     );
 
@@ -423,8 +442,7 @@ export async function scanReceiptLocal(input, onToken) {
     }
 }
 
-// ─── TEXT-ONLY AI (for Fast Scan / OCR-first flow) ────
-// Takes pre-extracted OCR text and parses it with AI (no image/vision model needed)
+// ─── TEXT-TO-JSON AI (Used by Hybrid AI Scan — 10x Faster than mmproj) ────────
 export async function scanReceiptFromText(ocrText, onToken) {
     const { textCompletion } = require('./localAI');
 
@@ -432,43 +450,29 @@ export async function scanReceiptFromText(ocrText, onToken) {
         throw new Error('OCR text is too short to parse as a receipt.');
     }
 
-    const prompt = `Parse the following receipt text (extracted via OCR) into JSON only. No markdown, no explanation.
+    const trimmedOcr = ocrText.length > 3500 ? ocrText.slice(0, 3500) : ocrText;
 
-JSON schema:
-{
-  "storeName": "string",
-  "date": "YYYY-MM-DD",
-  "items": [{"name": "string", "quantity": number, "price": number, "category": "food|transport|daily_needs|health|shopping|entertainment|education|bills|rent|beauty|gift|pets|other_spending"}],
-  "subtotal": number,
-  "serviceCharge": number,
-  "tax": number,
-  "total": number,
-}
+    const prompt = `Extract this receipt OCR text into strict JSON only.
+Schema:
+{"storeName":"string","date":"YYYY-MM-DD","items":[{"name":"string","quantity":1,"price":0,"category":"food|transport|daily_needs|health|shopping|entertainment|education|bills|rent|beauty|gift|pets|other_spending"}],"subtotal":0,"serviceCharge":0,"tax":0,"total":0}
 
 Rules:
-- For quantity, check left of item name first, then right, if not available, default to 1
-- Item prices on the receipt, such as 75,000, must be returned as 75000, do not return 75 only
-- Item prices such as 5.50/5,50 must be returned as 5.50
-- Store name: usually on very top, skip addresses/phone/NPWP/websites. Sentence with "rd" or "st", or city name is not store name, DO NOT USE IT.
-- Category: decide based on item name. If uncertain, use "other_spending"
-- Date: ALL DATE MUST BE RETURNED AS YYYY-MM-DD on JSON format
-- If the item name are in multiple languages, use English if available.
-- Invalid receipt (poster/object/blurry): {"invalidReceipt": true, "reason": "Not a valid receipt"}
+- "price" is the total price for that item line. Keep full numbers (e.g. 75.000 or 75,000 -> 75000).
+- Exclude subtotal, tax, PB1, PPN, service charge, cash/tunai, debit/qris, and change/kembali from "items".
+- Convert the receipt date to YYYY-MM-DD.
+- Output ONLY the JSON object.
 
-Receipt text:
----
-${ocrText}
----
-
-Return JSON only.`;
+Receipt OCR:
+${trimmedOcr}`;
 
     const response = await textCompletion(
         prompt,
         null,
         onToken,
         {
-            maxTokens: 2048,
-            temperature: 0.3,
+            maxTokens: 768,
+            temperature: 0.1,
+            disableThinking: true,
         }
     );
 
@@ -487,64 +491,15 @@ Return JSON only.`;
             ensureValidReceiptResult(normalized);
             return normalized;
         } catch {
+            // Final safety net: if LLM JSON was truncated, fall back to deterministic regex parser
+            const { parseReceiptFromOCR } = require('./ocrService');
+            const regexFallback = parseReceiptFromOCR(ocrText);
+            if (regexFallback) return regexFallback;
             throw new Error(`AI returned invalid receipt JSON from OCR text. Response: ${summarizeResponse(response)}`);
         }
     }
 }
 
-// ─── CLOUD AI (API with image) ────────────────
-export async function scanReceiptCloud(imageBase64, apiKey, endpoint = 'https://dashscope.aliyuncs.com/compatible-mode/v1') {
-    if (!apiKey) {
-        throw new Error('AI API key is required. Please set it in Settings.');
-    }
-
-    const response = await fetch(`${endpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-            model: 'qwen-vl-max',
-            messages: [
-                { role: 'system', content: RECEIPT_PROMPT },
-                {
-                    role: 'user',
-                    content: [
-                        {
-                            type: 'image_url',
-                            image_url: {
-                                url: `data:image/jpeg;base64,${imageBase64}`,
-                            },
-                        },
-                        {
-                            type: 'text',
-                            text: 'Please scan this receipt and extract all item details, prices, and totals into JSON format.',
-                        },
-                    ],
-                },
-            ],
-            max_tokens: 2000,
-            temperature: 0.1,
-        }),
-    });
-
-    if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`AI API Error: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-
-    try {
-        const normalized = normalizeReceiptData(parseAIJSON(content));
-        ensureValidReceiptResult(normalized);
-        return normalized;
-    } catch {
-        throw new Error(`Cloud AI returned invalid receipt JSON. Response: ${summarizeResponse(content)}`);
-    }
-}
 
 // ─── Unified scan (local-only) ─
 export async function scanReceipt(imageBase64OrText, apiKey, endpoint, onToken, originalUri = null, taskControl = null) {

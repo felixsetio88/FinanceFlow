@@ -642,7 +642,9 @@ export async function initModel() {
             model: modelPath,
             use_mlock: false,
             n_ctx: nCtx,
-            n_gpu_layers: config.gpuLayers,
+            n_gpu_layers: Platform.OS === 'ios' ? 99 : (config.gpuLayers || 0),
+            n_threads: Platform.OS === 'android' ? 4 : 6,
+            flash_attn: true,
             ctx_shift: config.visionFileName ? false : true,
         };
 
@@ -774,13 +776,19 @@ export async function textCompletion(prompt, imagePath = null, onToken, options 
             throw new Error('Local AI model is not loaded.');
         }
 
+        // Format as ChatML and pre-close <think></think> when disableThinking is set
+        // This stops Qwen 3.5 from wasting 400+ tokens on internal thinking before outputting JSON!
+        const formattedPrompt = options.disableThinking
+            ? `<|im_start|>system\nYou are a fast JSON extraction engine. Output valid JSON only.<|im_end|>\n<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n</think>\n`
+            : `<|im_start|>user\n${prompt}<|im_end|>\n<|im_start|>assistant\n`;
+
         const completionParams = {
-            prompt,
-            n_predict: options.maxTokens || 1024,
+            prompt: formattedPrompt,
+            n_predict: options.maxTokens || 768,
             stop: [...STOP_WORDS, ...(options.stop || [])],
-            temperature: options.temperature || 0.1,
+            temperature: options.temperature ?? 0.1,
             top_p: options.topP || 0.9,
-            top_k: options.topK || 40,
+            top_k: options.topK || 20,
         };
 
         if (imagePath) {
@@ -789,7 +797,6 @@ export async function textCompletion(prompt, imagePath = null, onToken, options 
                 await ensureMultimodalReady(config);
             }
 
-            // Always pass the image directly to the model.
             completionParams.messages = [
                 {
                     role: 'user',

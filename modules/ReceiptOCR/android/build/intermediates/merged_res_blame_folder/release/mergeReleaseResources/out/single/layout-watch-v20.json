@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "expo.modules.receiptocr.ReceiptOCRModule-release-50:/layout-watch-v20/abc_alert_dialog_button_bar_material.xml",
+        "source": "expo.modules.receiptocr.ReceiptOCRModule-appcompat-1.6.1-12:/layout-watch-v20/abc_alert_dialog_button_bar_material.xml"
+    },
+    {
+        "merged": "expo.modules.receiptocr.ReceiptOCRModule-release-50:/layout-watch-v20/abc_alert_dialog_title_material.xml",
+        "source": "expo.modules.receiptocr.ReceiptOCRModule-appcompat-1.6.1-12:/layout-watch-v20/abc_alert_dialog_title_material.xml"
+    }
+]

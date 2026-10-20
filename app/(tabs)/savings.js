@@ -17,6 +17,11 @@ import {
     cancelGoalReminder,
 } from '../../services/notificationService';
 
+
+import FastInput from '../../components/FastInput';
+// --------------------------------------------
+
+
 function DatePickerInput({ label, value, onChange, colors }) {
     const [show, setShow] = useState(false);
     const d = value ? new Date(value) : new Date();
@@ -118,7 +123,11 @@ export default function Savings() {
                 router.setParams({ addSavingGoalId: '' });
             }
         }
-    }, [params.addSavingGoalId, savingsGoals]);
+        if (params.detailGoalId && savingsGoals.length > 0) {
+            setDetailGoalId(params.detailGoalId);
+            router.setParams({ detailGoalId: '' });
+        }
+    }, [params.addSavingGoalId, params.detailGoalId, savingsGoals]);
 
     const [showTimePicker, setShowTimePicker] = useState(false);
     const [pickerHour, setPickerHour] = useState(9);
@@ -386,65 +395,73 @@ export default function Savings() {
                     const remaining = goal.targetAmount - goal.currentAmount;
                     const barColor = pct >= 100 ? '#059669' : pct > 60 ? '#F59E0B' : colors.primary;
                     return (
-                        <TouchableOpacity key={goal.id} style={[styles.goalCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: isDark ? '#000' : '#1A1040' }]} onPress={() => setDetailGoalId(goal.id)} activeOpacity={0.95}>
+                        <View key={goal.id} style={[styles.goalCard, { backgroundColor: colors.card, shadowColor: isDark ? '#000' : '#1A1040' }]}>
                             <View style={styles.goalCardInner}>
                                 <View style={styles.goalHeader}>
-                                    <View style={styles.goalTitleRow}>
+                                    <TouchableOpacity
+                                        style={styles.goalTitleRow}
+                                        onPress={() => setDetailGoalId(goal.id)}
+                                        activeOpacity={0.85}
+                                    >
                                         <View style={[styles.goalFlagWrap, { backgroundColor: isDark ? `${barColor}33` : `${barColor}18` }]}>
                                             <Ionicons name="flag" size={14} color={barColor} />
                                         </View>
                                         <Text style={[styles.goalTitle, { color: colors.textPrimary }]} numberOfLines={1}>{goal.title}</Text>
-                                    </View>
+                                    </TouchableOpacity>
                                     <View style={styles.goalActions}>
-                                        <TouchableOpacity onPress={() => openEdit(goal)} style={[styles.iconBtn, { backgroundColor: colors.inputBg }]}>
+                                        <TouchableOpacity onPress={() => openEdit(goal)} style={[styles.iconBtn, { backgroundColor: colors.inputBg }]} accessibilityLabel="Edit Goal">
                                             <Ionicons name="pencil" size={15} color={colors.textSecondary} />
                                         </TouchableOpacity>
-                                        <TouchableOpacity onPress={() => handleDelete(goal.id)} style={[styles.iconBtn, { backgroundColor: colors.inputBg }]}>
+                                        <TouchableOpacity onPress={() => handleDelete(goal.id)} style={[styles.iconBtn, { backgroundColor: colors.inputBg }]} accessibilityLabel="Delete Goal">
                                             <Ionicons name="trash" size={15} color={colors.rose} />
                                         </TouchableOpacity>
                                     </View>
                                 </View>
 
-                                <View style={styles.amountRow}>
-                                    <Text style={[styles.currentAmt, { color: barColor }]}>{formatCurrency(goal.currentAmount || 0, currency)}</Text>
-                                    <Text style={[styles.targetAmt, { color: colors.textMuted }]}> / {formatCurrency(goal.targetAmount, currency)}</Text>
-                                </View>
-
-                                {/* Progress */}
-                                <View style={styles.progressBarWrap}>
-                                    <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-                                        <View style={[styles.progressFill, { width: `${pct}%`, backgroundColor: barColor }]} />
+                                <TouchableOpacity activeOpacity={0.88} onPress={() => setDetailGoalId(goal.id)} accessibilityLabel="Goal Details">
+                                    <View style={styles.amountRow}>
+                                        <Text style={[styles.currentAmt, { color: barColor }]}>{formatCurrency(goal.currentAmount || 0, currency)}</Text>
+                                        <Text style={[styles.targetAmt, { color: colors.textMuted }]}> / {formatCurrency(goal.targetAmount, currency)}</Text>
                                     </View>
-                                    <Text style={[styles.pctBadge, { color: barColor }]}>{pct.toFixed(0)}%</Text>
-                                </View>
 
-                                {remaining > 0 && (
-                                    <Text style={[styles.remainText, { color: colors.textSecondary }]}>{formatCurrency(remaining, currency)} remaining</Text>
-                                )}
-
-                                {(goal.startDate || goal.endDate) && (
-                                    <View style={styles.dateRow}>
-                                        <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />
-                                        <Text style={[styles.dateMeta, { color: colors.textSecondary }]}>
-                                            {goal.startDate ? formatDate(goal.startDate) : '?'}
-                                            {' → '}
-                                            {goal.endDate ? formatDate(goal.endDate) : '?'}
-                                        </Text>
+                                    {/* Progress */}
+                                    <View style={styles.progressBarWrap}>
+                                        <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+                                            <View style={[styles.progressFill, { width: `${pct}%`, backgroundColor: barColor }]} />
+                                        </View>
+                                        <Text style={[styles.pctBadge, { color: barColor }]}>{pct.toFixed(0)}%</Text>
                                     </View>
-                                )}
 
-                                {goal.commitment && (
-                                    <View style={[styles.commitBadge, { backgroundColor: isDark ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.1)' }]}>
-                                        <Ionicons name="notifications" size={11} color="#F59E0B" />
-                                        <Text style={styles.commitText}>
-                                            {goal.commitment.charAt(0).toUpperCase() + goal.commitment.slice(1)} commitment
-                                            {goal.notifyEnabled ? ' · Reminders on' : ''}
-                                        </Text>
-                                    </View>
-                                )}
+                                    {remaining > 0 && (
+                                        <Text style={[styles.remainText, { color: colors.textSecondary }]}>{formatCurrency(remaining, currency)} remaining</Text>
+                                    )}
+
+                                    {(goal.startDate || goal.endDate) && (
+                                        <View style={styles.dateRow}>
+                                            <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />
+                                            <Text style={[styles.dateMeta, { color: colors.textSecondary }]}>
+                                                {goal.startDate ? formatDate(goal.startDate) : '?'}
+                                                {' → '}
+                                                {goal.endDate ? formatDate(goal.endDate) : '?'}
+                                            </Text>
+                                        </View>
+                                    )}
+
+                                    {goal.commitment && (
+                                        <View style={[styles.commitBadge, { backgroundColor: isDark ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.1)' }]}>
+                                            <Ionicons name="notifications" size={11} color="#F59E0B" />
+                                            <Text style={styles.commitText}>
+                                                {goal.commitment.charAt(0).toUpperCase() + goal.commitment.slice(1)} commitment
+                                                {goal.notifyEnabled ? ' · Reminders on' : ''}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
 
                                 <View style={styles.goalBtnRow}>
                                     <TouchableOpacity
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Add Savings ${goal.title}`}
                                         style={[styles.addSavingBtn, { backgroundColor: barColor }]}
                                         onPress={() => { setAddTarget(goal); setAddAmount(''); setShowAddModal(true); }}
                                         activeOpacity={0.85}
@@ -459,7 +476,7 @@ export default function Savings() {
                                 </View>
                                 <Text style={styles.historyHint}>Tap card to view goal details and add-savings history</Text>
                             </View>
-                        </TouchableOpacity>
+                        </View>
                     );
                 })}
 
@@ -470,7 +487,7 @@ export default function Savings() {
                             <Text style={[styles.sectionTitle, { color: colors.emerald }]}>Completed Goals</Text>
                         </View>
                         {completed.map(goal => (
-                            <TouchableOpacity key={goal.id} style={[styles.goalCard, styles.goalCardCompleted, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => setDetailGoalId(goal.id)} activeOpacity={0.95}>
+                            <TouchableOpacity key={goal.id} style={[styles.goalCard, styles.goalCardCompleted, { backgroundColor: colors.card }]} onPress={() => setDetailGoalId(goal.id)} activeOpacity={0.95}>
                                 <View style={styles.goalCardInner}>
                                     <View style={styles.goalHeader}>
                                         <View style={styles.goalTitleRow}>
@@ -510,7 +527,7 @@ export default function Savings() {
                             </View>
 
                             <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>What is this saving for?</Text>
-                            <TextInput
+                            <FastInput
                                 style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                                 placeholder="e.g. Buy a new PC"
                                 placeholderTextColor={colors.textMuted}
@@ -519,7 +536,7 @@ export default function Savings() {
                             />
 
                             <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Target Amount ({currency})</Text>
-                            <TextInput
+                            <FastInput
                                 style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                                 placeholder="0"
                                 placeholderTextColor={colors.textMuted}
@@ -693,7 +710,7 @@ export default function Savings() {
                             </View>
                         )}
                         <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Amount ({currency})</Text>
-                        <TextInput
+                        <FastInput
                             style={[styles.input, { fontSize: FontSize.xxxl, fontFamily: 'Poppins_800ExtraBold', textAlign: 'center', color: colors.textPrimary, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                             placeholder="0"
                             placeholderTextColor={colors.textMuted}
@@ -736,6 +753,25 @@ export default function Savings() {
                                         <Text style={[styles.detailMeta, { color: colors.textSecondary }]}>Reminder: {detailGoal.commitment}</Text>
                                     ) : null}
 
+                                    <TouchableOpacity
+                                        accessibilityRole="button"
+                                        accessibilityLabel="Add Savings From Details"
+                                        style={[styles.saveBtn, { marginVertical: Spacing.md }]}
+                                        onPress={() => {
+                                            const g = detailGoal;
+                                            setDetailGoalId(null);
+                                            setTimeout(() => {
+                                                setAddTarget(g);
+                                                setAddAmount('');
+                                                setShowAddModal(true);
+                                            }, 250);
+                                        }}
+                                        activeOpacity={0.85}
+                                    >
+                                        <Ionicons name="add-circle" size={18} color="#fff" />
+                                        <Text style={styles.saveBtnText}>+ Add Savings to this Goal</Text>
+                                    </TouchableOpacity>
+
                                     <View style={styles.historyHeaderRow}>
                                         <Text style={[styles.historyHeader, { color: colors.textPrimary }]}>Add Savings History</Text>
                                     </View>
@@ -767,7 +803,7 @@ export default function Savings() {
                                             <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Date</Text>
                                             <DatePickerInput label="History Date" value={historyEditDate} onChange={setHistoryEditDate} colors={colors} />
                                             <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Amount ({currency})</Text>
-                                            <TextInput
+                                            <FastInput
                                                 style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
                                                 placeholder="0"
                                                 placeholderTextColor={colors.textMuted}
@@ -900,8 +936,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.88)',
         borderRadius: 22,
         marginBottom: Spacing.md,
-        borderWidth: 1,
-        borderColor: 'rgba(255,102,0,0.07)',
         overflow: 'hidden',
         shadowColor: '#1A1040',
         shadowOffset: { width: 0, height: 4 },

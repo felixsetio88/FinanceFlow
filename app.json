@@ -16,7 +16,12 @@
     "ios": {
       "supportsTablet": true,
       "deploymentTarget": "15.5",
-      "bundleIdentifier": "com.financeflow.app"
+      "bundleIdentifier": "com.financeflow.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "FinanceFlow uses your camera to scan physical receipts and bills so you can automatically log expenses on your device.",
+        "NSPhotoLibraryUsageDescription": "FinanceFlow accesses your photo library so you can select receipt images for expense scanning and attach images to your financial records."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -24,7 +29,11 @@
         "backgroundColor": "#0a0e1a"
       },
       "package": "com.financeflow.app",
-      "backgroundColor": "#00000000"
+      "backgroundColor": "#00000000",
+      "permissions": [
+        "INTERNET",
+        "VIBRATE"
+      ]
     },
     "androidNavigationBar": {
       "backgroundColor": "#00000000"
@@ -38,17 +47,7 @@
       "expo-router",
       "expo-sqlite",
       "expo-font",
-      [
-        "react-native-ble-plx",
-        {
-          "isBackgroundEnabled": true,
-          "modes": [
-            "peripheral",
-            "central"
-          ],
-          "bluetoothAlwaysPermission": "Allow FinanceFlow to connect to OBD-II devices."
-        }
-      ],
+
       [
         "expo-notifications",
         {

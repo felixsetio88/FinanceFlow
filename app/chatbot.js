@@ -12,6 +12,7 @@ import { extractTextFromDocumentUri } from '../services/localOCR';
 import * as DocumentPicker from 'expo-document-picker';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
+import { findMatchingAsset } from '../utils/helpers';
 
 const SUGGESTIONS = [
     'Show my spending summary',
@@ -24,13 +25,13 @@ const SUGGESTIONS = [
 export default function Chatbot() {
     const { colors, isDark } = useTheme();
     const router = useRouter();
-    const { transactions, currency, savingsGoals, budgets, assets, vehicles, chatSessions, addChatSession, updateChatSession, deleteChatSession } = useApp();
+    const { transactions, currency, savingsGoals, budgets, assets, vehicles, chatSessions, addChatSession, updateChatSession, deleteChatSession, exchangeRates } = useApp();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
     const welcomeMessage = {
         id: 'welcome',
         role: 'assistant',
-        text: "Hi! I'm your AI financial assistant 👋\n\nI can help you analyze your spending, track savings goals, and give personalized financial insights. What would you like to know?",
+        text: "Hi! I'm your AI financial assistant 👋\n\nI can help you analyze your spending, track savings goals, and give personalized financial insights. What would you like to know?\n\n*Note: All AI insights are for informational purposes only and do not constitute financial advice.*",
     };
     const [messages, setMessages] = useState([welcomeMessage]);
     const [currentSessionId, setCurrentSessionId] = useState(null);
@@ -46,7 +47,7 @@ export default function Chatbot() {
         return () => clearTimeout(timer);
     }, [messages]);
 
-    const state = { transactions, budgets, assets: assets || [], vehicles: vehicles || [], currency };
+    const state = { transactions, budgets, assets: assets || [], vehicles: vehicles || [], currency, exchangeRates };
 
     const addImageAttachment = async ({ uri, name, mimeType }) => {
         if (!uri) return;
@@ -233,20 +234,26 @@ My message: ${userText}`;
                 m.id === assistantId ? { ...m, text: '' } : m
             ));
 
+            let streamedText = '';
             const aiResponse = await sendChatMessage(
                 finalUserText,
                 state,
                 chatHistory,
                 (token) => {
-                    setMessages(prev => {
-                        const updated = prev.map(m => m.id === assistantId ? { ...m, text: m.text + token } : m);
-                        updateChatSession(activeSessionId, updated).catch(console.error);
-                        return updated;
-                    });
+                    streamedText += token;
+                    setMessages(prev =>
+                        prev.map(m => m.id === assistantId ? { ...m, text: streamedText } : m)
+                    );
                 },
                 attachmentsToSend,
                 isTransactionMode
             );
+            const finalText = streamedText || aiResponse?.text || '';
+            setMessages(prev => {
+                const updated = prev.map(m => m.id === assistantId ? { ...m, text: finalText } : m);
+                updateChatSession(activeSessionId, updated).catch(console.error);
+                return updated;
+            });
         } catch (err) {
             setMessages(prev => {
                 const updated = prev.map(m => m.id === assistantId ? { ...m, text: '⚠️ ' + (err.message || 'Could not get response.') } : m);
@@ -275,7 +282,7 @@ My message: ${userText}`;
 
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={[styles.backBtn, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+                <TouchableOpacity onPress={() => { if (router.canDismiss?.()) { router.dismiss(); } else { router.back(); } }} style={[styles.backBtn, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
                     <Ionicons name="arrow-back" size={20} color={colors.primary} />
                 </TouchableOpacity>
                 <View style={styles.headerCenter}>
@@ -341,10 +348,33 @@ My message: ${userText}`;
                                         <TouchableOpacity
                                             style={[styles.txAddBtn, { backgroundColor: colors.primary }]}
                                             onPress={() => {
-                                                const match = msg.text.match(/```json\n([\s\S]*?)\n```/);
+                                                const match = msg.text.match(/```json\s*([\s\S]*?)\s*```/);
                                                 if (match) {
                                                     try {
                                                         const txData = JSON.parse(match[1]);
+                                                        if (assets && assets.length > 0) {
+                                                            const rawAsset = txData.assetId || txData.accountId || txData.account || txData.asset || txData.assetName || txData.payFrom;
+                                                            if (rawAsset) {
+                                                                const matched = findMatchingAsset(rawAsset, assets);
+                                                                if (matched) {
+                                                                    txData.assetId = matched.id;
+                                                                }
+                                                            }
+                                                            const rawFrom = txData.fromAssetId || txData.fromAccount || txData.from;
+                                                            if (rawFrom) {
+                                                                const matchedFrom = findMatchingAsset(rawFrom, assets);
+                                                                if (matchedFrom) {
+                                                                    txData.fromAssetId = matchedFrom.id;
+                                                                }
+                                                            }
+                                                            const rawTo = txData.toAssetId || txData.toAccount || txData.to;
+                                                            if (rawTo) {
+                                                                const matchedTo = findMatchingAsset(rawTo, assets);
+                                                                if (matchedTo) {
+                                                                    txData.toAssetId = matchedTo.id;
+                                                                }
+                                                            }
+                                                        }
                                                         // Use setTimeout to avoid iOS touch registry crash
                                                         setTimeout(() => {
                                                             router.push({ pathname: '/add-transaction', params: { prefill: JSON.stringify(txData) } });
@@ -367,6 +397,11 @@ My message: ${userText}`;
                                         renderMarkdownText(msg.text, [styles.bubbleAIText, { color: colors.textPrimary }])
                                     )
                                 )
+                            )}
+                            {msg.role === 'assistant' && !!msg.text && (
+                                <Text style={{ fontSize: 10, fontFamily: 'Poppins_400Regular', color: colors.textMuted, marginTop: 6 }}>
+                                    ℹ️ AI-generated content · Informational only, not financial advice.
+                                </Text>
                             )}
                         </View>
                     </View>

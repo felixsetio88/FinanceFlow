@@ -12,6 +12,11 @@ import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import DonutChart from '../components/DonutChart';
 
+
+import FastInput from '../components/FastInput';
+// --------------------------------------------
+
+
 // ── Color palette users can pick for their cards ──────────────
 const CARD_COLORS = [
     '#ff6600', '#3B82F6', '#1E293B', '#0F4C75',
@@ -28,7 +33,7 @@ function getCardColor(asset, index) {
 export default function Assets() {
     const { colors, isDark } = useTheme();
     const router = useRouter();
-    const { assets, currency, addAsset, updateAsset, deleteAsset, exchangeRates, convertCurrency } = useApp();
+    const { assets, currency, addAsset, updateAsset, deleteAsset, addTransaction, exchangeRates, convertCurrency } = useApp();
 
     const [showModal, setShowModal] = useState(false);
     const [showTransfer, setShowTransfer] = useState(false);
@@ -118,14 +123,36 @@ export default function Assets() {
     };
 
     const handleTransfer = async () => {
-        const amt = parseFloat(transferAmount);
-        if (!amt || amt <= 0) { Alert.alert('Error', 'Enter a valid amount'); return; }
-        if (!fromId || !toId || fromId === toId) { Alert.alert('Error', 'Select two different accounts'); return; }
         const from = assets.find(a => a.id === fromId);
         const to = assets.find(a => a.id === toId);
-        if (!from || !to) return;
-        await updateAsset({ ...from, balance: from.balance - amt });
-        await updateAsset({ ...to, balance: to.balance + amt });
+        if (!from || !to) { Alert.alert('Error', 'Select two different accounts'); return; }
+        const fromCur = from.currency || currency;
+        const toCur = to.currency || currency;
+        const amt = parseFloat(transferAmount);
+        if (!amt || amt <= 0) { Alert.alert('Error', 'Enter a valid amount'); return; }
+        if (fromId === toId) { Alert.alert('Error', 'Select two different accounts'); return; }
+
+        const destAmt = fromCur !== toCur
+            ? convertCurrency(amt, fromCur, toCur, exchangeRates)
+            : amt;
+
+        await updateAsset({ ...from, balance: (from.balance || 0) - amt });
+        await updateAsset({ ...to, balance: (to.balance || 0) + destAmt });
+        await addTransaction({
+            id: generateId(),
+            type: 'move',
+            amount: amt,
+            category: 'transfer',
+            description: `${from.name} → ${to.name}`,
+            date: new Date().toISOString(),
+            items: [],
+            photos: [],
+            paymentMethod: 'transfer',
+            assetId: null,
+            fromAssetId: from.id,
+            toAssetId: to.id,
+            currency: fromCur,
+        });
         setShowTransfer(false);
         setTransferAmount('');
         setFromId('');
@@ -297,7 +324,7 @@ export default function Assets() {
 
                                 {/* Account name */}
                                 <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Account Name</Text>
-                                <TextInput
+                                <FastInput
                                     style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
                                     placeholder="e.g. BCA Savings"
                                     placeholderTextColor={colors.textMuted}
@@ -356,7 +383,7 @@ export default function Assets() {
 
                                 {/* Balance */}
                                 <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Balance ({assetCurrency})</Text>
-                                <TextInput
+                                <FastInput
                                     style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
                                     placeholder="0"
                                     placeholderTextColor={colors.textMuted}
@@ -457,7 +484,7 @@ export default function Assets() {
                                 </View>
 
                                 <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Amount ({currency})</Text>
-                                <TextInput
+                                <FastInput
                                     style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
                                     placeholder="0"
                                     placeholderTextColor={colors.textMuted}

@@ -83,6 +83,18 @@ async function initDB(database) {
       amount REAL NOT NULL,
       category TEXT DEFAULT 'all',
       currency TEXT DEFAULT 'USD',
+      cycleStartDay INTEGER DEFAULT 1,
+      createdAt TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS recurring_transactions (
+      id TEXT PRIMARY KEY,
+      templateData TEXT NOT NULL,
+      frequency TEXT NOT NULL,
+      postMode TEXT NOT NULL DEFAULT 'auto',
+      nextDueDate TEXT NOT NULL,
+      lastPostedDate TEXT,
+      isActive INTEGER DEFAULT 1,
       createdAt TEXT NOT NULL
     );
 
@@ -161,10 +173,37 @@ async function initDB(database) {
         'ALTER TABLE vehicles ADD COLUMN totalDistance REAL DEFAULT 0',
         'ALTER TABLE vehicles ADD COLUMN totalDrivingTime REAL DEFAULT 0',
         'ALTER TABLE vehicles ADD COLUMN totalFuelConsumed REAL DEFAULT 0',
+        'ALTER TABLE budgets ADD COLUMN cycleStartDay INTEGER DEFAULT 1',
+        'ALTER TABLE transactions ADD COLUMN tags TEXT',
+        'ALTER TABLE transactions ADD COLUMN splits TEXT',
     ];
-    for (const sql of migrations) {
-        try { await database.execAsync(sql); } catch (_) { /* column already exists */ }
+
+    // Create net_worth_snapshots table
+    await database.execAsync(`
+        CREATE TABLE IF NOT EXISTS net_worth_snapshots (
+            id TEXT PRIMARY KEY,
+            date TEXT NOT NULL,
+            totalValue REAL NOT NULL DEFAULT 0,
+            breakdown TEXT,
+            currency TEXT DEFAULT 'USD',
+            createdAt TEXT NOT NULL
+        );
+    `);
+
+    const versionRow = await database.getFirstAsync('PRAGMA user_version');
+    const currentVersion = versionRow?.user_version || 0;
+    const TARGET_SCHEMA_VERSION = 2;
+
+    if (currentVersion < TARGET_SCHEMA_VERSION) {
+        for (const sql of migrations) {
+            try { await database.execAsync(sql); } catch (_) { /* column already exists */ }
+        }
+        await database.execAsync(`PRAGMA user_version = ${TARGET_SCHEMA_VERSION}`);
     }
+
+    try {
+        await database.execAsync("UPDATE transactions SET category = 'transport' WHERE LOWER(category) IN ('transport', 'car', 'vehicle');");
+    } catch (_) { }
 }
 
 // ─── Transactions ─────────────────────────────
@@ -177,6 +216,7 @@ export async function getAllTransactions() {
     const rows = await database.getAllAsync('SELECT * FROM transactions ORDER BY date DESC');
     return rows.map(r => ({
         ...r,
+        category: (r.category && ['transport', 'car', 'vehicle'].includes(r.category.toLowerCase())) ? 'transport' : r.category,
         amount: r.amount,
         items: safeParse(r.items, []),
         photos: safeParse(r.photos, []),
@@ -192,6 +232,8 @@ export async function getAllTransactions() {
         tip: r.tip || 0,
         tipIsPercent: !!r.tipIsPercent,
         tipEnabled: !!r.tipEnabled,
+        tags: safeParse(r.tags, []),
+        splits: safeParse(r.splits, []),
     }));
 }
 
@@ -208,15 +250,17 @@ export async function addTransaction(tx) {
 
     const database = await getDB();
     await database.runAsync(
-        `INSERT INTO transactions (id, type, amount, category, description, date, items, photos, paymentMethod, assetId, fromAssetId, toAssetId, tax, taxIsPercent, taxEnabled, serviceFee, serviceFeeIsPercent, serviceFeeEnabled, tip, tipIsPercent, tipEnabled, currency, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO transactions (id, type, amount, category, description, date, items, photos, paymentMethod, assetId, fromAssetId, toAssetId, tax, taxIsPercent, taxEnabled, serviceFee, serviceFeeIsPercent, serviceFeeEnabled, tip, tipIsPercent, tipEnabled, currency, tags, splits, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, tx.type, tx.amount, tx.category || '', tx.description || '', tx.date || now,
             JSON.stringify(tx.items || []), JSON.stringify(tx.photos || []), tx.paymentMethod || 'cash',
             tx.assetId || null, tx.fromAssetId || null, tx.toAssetId || null,
             tx.tax || 0, tx.taxIsPercent ? 1 : 0, tx.taxEnabled ? 1 : 0,
             tx.serviceFee || 0, tx.serviceFeeIsPercent ? 1 : 0, tx.serviceFeeEnabled ? 1 : 0,
             tx.tip || 0, tx.tipIsPercent ? 1 : 0, tx.tipEnabled ? 1 : 0,
-            tx.currency || 'USD', now]
+            tx.currency || 'USD',
+            JSON.stringify(tx.tags || []), JSON.stringify(tx.splits || []),
+            now]
     );
     return id;
 }
@@ -230,14 +274,16 @@ export async function updateTransaction(tx) {
     }
     const database = await getDB();
     await database.runAsync(
-        `UPDATE transactions SET type=?, amount=?, category=?, description=?, date=?, items=?, photos=?, paymentMethod=?, assetId=?, fromAssetId=?, toAssetId=?, tax=?, taxIsPercent=?, taxEnabled=?, serviceFee=?, serviceFeeIsPercent=?, serviceFeeEnabled=?, tip=?, tipIsPercent=?, tipEnabled=?, currency=? WHERE id=?`,
+        `UPDATE transactions SET type=?, amount=?, category=?, description=?, date=?, items=?, photos=?, paymentMethod=?, assetId=?, fromAssetId=?, toAssetId=?, tax=?, taxIsPercent=?, taxEnabled=?, serviceFee=?, serviceFeeIsPercent=?, serviceFeeEnabled=?, tip=?, tipIsPercent=?, tipEnabled=?, currency=?, tags=?, splits=? WHERE id=?`,
         [tx.type, tx.amount, tx.category, tx.description, tx.date,
         JSON.stringify(tx.items || []), JSON.stringify(tx.photos || []), tx.paymentMethod || 'cash',
         tx.assetId || null, tx.fromAssetId || null, tx.toAssetId || null,
         tx.tax || 0, tx.taxIsPercent ? 1 : 0, tx.taxEnabled ? 1 : 0,
         tx.serviceFee || 0, tx.serviceFeeIsPercent ? 1 : 0, tx.serviceFeeEnabled ? 1 : 0,
         tx.tip || 0, tx.tipIsPercent ? 1 : 0, tx.tipEnabled ? 1 : 0,
-        tx.currency || 'USD', tx.id]
+        tx.currency || 'USD',
+        JSON.stringify(tx.tags || []), JSON.stringify(tx.splits || []),
+        tx.id]
     );
 }
 
@@ -266,15 +312,15 @@ export async function addBudget(b) {
     const now = new Date().toISOString();
 
     if (!isNative) {
-        memStore.budgets.unshift({ ...b, id, category: b.category || 'all', createdAt: now });
+        memStore.budgets.unshift({ ...b, id, category: b.category || 'all', cycleStartDay: b.cycleStartDay || 1, createdAt: now });
         saveMemStore();
         return id;
     }
 
     const database = await getDB();
     await database.runAsync(
-        'INSERT INTO budgets (id, period, amount, category, currency, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-        [id, b.period, b.amount, b.category || 'all', b.currency || 'USD', now]
+        'INSERT INTO budgets (id, period, amount, category, currency, cycleStartDay, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [id, b.period, b.amount, b.category || 'all', b.currency || 'USD', b.cycleStartDay || 1, now]
     );
     return id;
 }
@@ -288,8 +334,8 @@ export async function updateBudget(b) {
     }
     const database = await getDB();
     await database.runAsync(
-        'UPDATE budgets SET period=?, amount=?, category=?, currency=? WHERE id=?',
-        [b.period, b.amount, b.category || 'all', b.currency || 'USD', b.id]
+        'UPDATE budgets SET period=?, amount=?, category=?, currency=?, cycleStartDay=? WHERE id=?',
+        [b.period, b.amount, b.category || 'all', b.currency || 'USD', b.cycleStartDay || 1, b.id]
     );
 }
 
@@ -348,11 +394,17 @@ export async function updateAsset(a) {
 export async function deleteAsset(id) {
     if (!isNative) {
         memStore.assets = memStore.assets.filter(a => a.id !== id);
+        memStore.transactions = memStore.transactions.map(t =>
+            t.assetId === id ? { ...t, assetId: null, paymentMethod: 'cash' } : t
+        );
         saveMemStore();
         return;
     }
     const database = await getDB();
-    await database.runAsync('DELETE FROM assets WHERE id=?', [id]);
+    await database.withTransactionAsync(async () => {
+        await database.runAsync('UPDATE transactions SET assetId = NULL, paymentMethod = "cash" WHERE assetId = ?', [id]);
+        await database.runAsync('DELETE FROM assets WHERE id = ?', [id]);
+    });
 }
 
 // ─── Settings ─────────────────────────────────
@@ -393,38 +445,110 @@ export async function bulkAddTransactions(transactions) {
 
     const database = await getDB();
     const now = new Date().toISOString();
-    for (const tx of transactions) {
-        const id = tx.id || generateId();
-        await database.runAsync(
-            `INSERT OR REPLACE INTO transactions (id, type, amount, category, description, date, items, photos, paymentMethod, assetId, fromAssetId, toAssetId, tax, taxIsPercent, taxEnabled, serviceFee, serviceFeeIsPercent, serviceFeeEnabled, tip, tipIsPercent, tipEnabled, currency, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                id,
-                tx.type,
-                tx.amount,
-                tx.category || '',
-                tx.description || '',
-                tx.date || now,
-                JSON.stringify(tx.items || []),
-                JSON.stringify(tx.photos || []),
-                tx.paymentMethod || 'cash',
-                tx.assetId || null,
-                tx.fromAssetId || null,
-                tx.toAssetId || null,
-                tx.tax || 0,
-                tx.taxIsPercent ? 1 : 0,
-                tx.taxEnabled ? 1 : 0,
-                tx.serviceFee || 0,
-                tx.serviceFeeIsPercent ? 1 : 0,
-                tx.serviceFeeEnabled ? 1 : 0,
-                tx.tip || 0,
-                tx.tipIsPercent ? 1 : 0,
-                tx.tipEnabled ? 1 : 0,
-                tx.currency || 'USD',
-                tx.createdAt || now
-            ]
-        );
+    await database.withTransactionAsync(async () => {
+        for (const tx of transactions) {
+            const id = tx.id || generateId();
+            await database.runAsync(
+                `INSERT OR REPLACE INTO transactions (id, type, amount, category, description, date, items, photos, paymentMethod, assetId, fromAssetId, toAssetId, tax, taxIsPercent, taxEnabled, serviceFee, serviceFeeIsPercent, serviceFeeEnabled, tip, tipIsPercent, tipEnabled, currency, tags, splits, createdAt)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    id,
+                    tx.type,
+                    tx.amount,
+                    tx.category || '',
+                    tx.description || '',
+                    tx.date || now,
+                    JSON.stringify(tx.items || []),
+                    JSON.stringify(tx.photos || []),
+                    tx.paymentMethod || (tx.assetId ? 'asset' : 'cash'),
+                    tx.assetId || null,
+                    tx.fromAssetId || null,
+                    tx.toAssetId || null,
+                    tx.tax || 0,
+                    tx.taxIsPercent ? 1 : 0,
+                    tx.taxEnabled ? 1 : 0,
+                    tx.serviceFee || 0,
+                    tx.serviceFeeIsPercent ? 1 : 0,
+                    tx.serviceFeeEnabled ? 1 : 0,
+                    tx.tip || 0,
+                    tx.tipIsPercent ? 1 : 0,
+                    tx.tipEnabled ? 1 : 0,
+                    tx.currency || 'USD',
+                    JSON.stringify(tx.tags || []),
+                    JSON.stringify(tx.splits || []),
+                    tx.createdAt || now,
+                ]
+            );
+        }
+    });
+}
+
+// ─── Tags ─────────────────────────────────────
+export async function getAllTags() {
+    if (!isNative) {
+        loadMemStore();
+        const tagSet = new Set();
+        (memStore.transactions || []).forEach(t => {
+            const tags = Array.isArray(t.tags) ? t.tags : safeParse(t.tags, []);
+            tags.forEach(tag => tagSet.add(tag));
+        });
+        return [...tagSet].sort();
     }
+    const database = await getDB();
+    const rows = await database.getAllAsync('SELECT tags FROM transactions WHERE tags IS NOT NULL AND tags != "[]"');
+    const tagSet = new Set();
+    rows.forEach(r => {
+        const tags = safeParse(r.tags, []);
+        tags.forEach(tag => tagSet.add(tag));
+    });
+    return [...tagSet].sort();
+}
+
+// ─── Net Worth Snapshots ──────────────────────
+export async function addNetWorthSnapshot(snapshot) {
+    const id = snapshot.id || generateId();
+    const now = new Date().toISOString();
+    if (!isNative) {
+        if (!memStore.netWorthSnapshots) memStore.netWorthSnapshots = [];
+        memStore.netWorthSnapshots.push({ ...snapshot, id, createdAt: now });
+        saveMemStore();
+        return id;
+    }
+    const database = await getDB();
+    await database.runAsync(
+        'INSERT INTO net_worth_snapshots (id, date, totalValue, breakdown, currency, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+        [id, snapshot.date, snapshot.totalValue, JSON.stringify(snapshot.breakdown || {}), snapshot.currency || 'USD', now]
+    );
+    return id;
+}
+
+export async function getNetWorthHistory(limit = 90) {
+    if (!isNative) {
+        loadMemStore();
+        return (memStore.netWorthSnapshots || []).slice(-limit);
+    }
+    const database = await getDB();
+    const rows = await database.getAllAsync(
+        'SELECT * FROM net_worth_snapshots ORDER BY date ASC LIMIT ?', [limit]
+    );
+    return rows.map(r => ({
+        ...r,
+        breakdown: safeParse(r.breakdown, {}),
+    }));
+}
+
+export async function getLatestNetWorthSnapshot() {
+    if (!isNative) {
+        loadMemStore();
+        const snapshots = memStore.netWorthSnapshots || [];
+        return snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    }
+    const database = await getDB();
+    const row = await database.getFirstAsync(
+        'SELECT * FROM net_worth_snapshots ORDER BY date DESC LIMIT 1'
+    );
+    if (!row) return null;
+    return { ...row, breakdown: safeParse(row.breakdown, {}) };
 }
 
 // ─── Vehicles ─────────────────────────────────
@@ -548,8 +672,8 @@ export async function restoreAllData(data) {
         for (const b of (data.budgets || [])) {
             const now = b.createdAt || new Date().toISOString();
             await database.runAsync(
-                'INSERT INTO budgets (id, period, amount, category, currency, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-                [b.id || generateId(), b.period || 'monthly', b.amount || 0, b.category || 'all', b.currency || 'USD', now]
+                'INSERT INTO budgets (id, period, amount, category, currency, cycleStartDay, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [b.id || generateId(), b.period || 'monthly', b.amount || 0, b.category || 'all', b.currency || 'USD', b.cycleStartDay || 1, now]
             );
         }
 
@@ -681,20 +805,22 @@ export async function mergeAllData(data) {
 
         // 2. Budgets Merge
         const existingBudgetIds = new Set(memStore.budgets.map(b => b.id));
-        const existingBudgetPeriods = new Set(memStore.budgets.map(b => (b.period || '').trim().toLowerCase()));
+        const makeBudgetKey = (b) => `${(b.period || 'monthly').trim().toLowerCase()}_${(b.category || 'all').trim().toLowerCase()}`;
+        const existingBudgetPeriods = new Set(memStore.budgets.map(makeBudgetKey));
 
         for (const b of (data.budgets || [])) {
-            const incomingPeriod = (b.period || '').trim().toLowerCase();
-            if (!existingBudgetIds.has(b.id) && !existingBudgetPeriods.has(incomingPeriod)) {
+            const incomingKey = makeBudgetKey(b);
+            if (!existingBudgetIds.has(b.id) && !existingBudgetPeriods.has(incomingKey)) {
                 const newId = b.id || generateId();
                 memStore.budgets.unshift({
                     ...b,
                     id: newId,
                     category: b.category || 'all',
+                    cycleStartDay: b.cycleStartDay || 1,
                     createdAt: b.createdAt || new Date().toISOString()
                 });
                 existingBudgetIds.add(newId);
-                existingBudgetPeriods.add(incomingPeriod);
+                existingBudgetPeriods.add(incomingKey);
             }
         }
 
@@ -806,7 +932,8 @@ export async function mergeAllData(data) {
     const existingAssetNamesMap = new Map(existingAssetsList.map(a => [(a.name || '').trim().toLowerCase(), a.id]));
 
     const existingBudgetIds = new Set(existingBudgetsList.map(b => b.id));
-    const existingBudgetPeriods = new Set(existingBudgetsList.map(b => (b.period || '').trim().toLowerCase()));
+    const makeBudgetKey = (b) => `${(b.period || 'monthly').trim().toLowerCase()}_${(b.category || 'all').trim().toLowerCase()}`;
+    const existingBudgetPeriods = new Set(existingBudgetsList.map(makeBudgetKey));
 
     const existingGoalIds = new Set(existingGoalsList.map(g => g.id));
     const existingGoalTitlesMap = new Map(existingGoalsList.map(g => [(g.title || '').trim().toLowerCase(), g.id]));
@@ -850,12 +977,12 @@ export async function mergeAllData(data) {
     // 2. Budgets Merge
     const budgetsToInsert = [];
     for (const b of (data.budgets || [])) {
-        const incomingPeriod = (b.period || '').trim().toLowerCase();
-        if (!existingBudgetIds.has(b.id) && !existingBudgetPeriods.has(incomingPeriod)) {
+        const incomingKey = makeBudgetKey(b);
+        if (!existingBudgetIds.has(b.id) && !existingBudgetPeriods.has(incomingKey)) {
             const newId = b.id || generateId();
             budgetsToInsert.push({ ...b, id: newId });
             existingBudgetIds.add(newId);
-            existingBudgetPeriods.add(incomingPeriod);
+            existingBudgetPeriods.add(incomingKey);
         }
     }
 
@@ -940,8 +1067,8 @@ export async function mergeAllData(data) {
         for (const b of budgetsToInsert) {
             const now = b.createdAt || new Date().toISOString();
             await database.runAsync(
-                'INSERT INTO budgets (id, period, amount, category, currency, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-                [b.id, b.period || 'monthly', b.amount || 0, b.category || 'all', b.currency || 'USD', now]
+                'INSERT INTO budgets (id, period, amount, category, currency, cycleStartDay, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [b.id, b.period || 'monthly', b.amount || 0, b.category || 'all', b.currency || 'USD', b.cycleStartDay || 1, now]
             );
         }
 
@@ -1132,18 +1259,31 @@ export async function deleteSavingsGoal(id) {
 }
 
 export async function getAllData() {
-    const [transactions, budgets, assets, savingsGoals, chatSessions, vehicles] = await Promise.all([
+    const [transactions, budgets, assets, savingsGoals, chatSessions, vehicles, recurringTransactions] = await Promise.all([
         getAllTransactions(),
         getAllBudgets(),
         getAllAssets(),
         getAllSavingsGoals(),
         getAllChatSessions(),
         getAllVehicles(),
+        getAllRecurringTransactions(),
     ]);
     const currency = await getSetting('currency');
     const aiApiKey = await getSetting('ai_api_key');
     const aiEndpoint = await getSetting('ai_endpoint');
-    const onboardingCompleted = await getSetting('onboarding_completed');
+    let onboardingCompleted = await getSetting('onboarding_completed');
+
+    // Safety: If the database already contains assets or transactions, the user has completed onboarding
+    const hasExistingData = (assets && assets.length > 0) || (transactions && transactions.length > 0);
+    if (hasExistingData && onboardingCompleted !== 'true') {
+        onboardingCompleted = 'true';
+        try {
+            await setSetting('onboarding_completed', 'true');
+        } catch (e) {
+            console.warn('Failed to auto-persist onboarding status:', e);
+        }
+    }
+
     return {
         transactions,
         budgets,
@@ -1151,6 +1291,7 @@ export async function getAllData() {
         savingsGoals,
         chatSessions,
         vehicles,
+        recurringTransactions,
         settings: { currency: currency || 'USD', aiApiKey, aiEndpoint, onboardingCompleted: onboardingCompleted === 'true' },
     };
 }
@@ -1217,4 +1358,98 @@ export async function deleteChatSession(id) {
     }
     const database = await getDB();
     await database.runAsync('DELETE FROM chat_sessions WHERE id=?', [id]);
+}
+
+// ─── Recurring Transactions ───────────────────
+export async function getAllRecurringTransactions() {
+    if (!isNative) {
+        loadMemStore();
+        return (memStore.recurringTransactions || []).map(r => ({
+            ...r,
+            templateData: typeof r.templateData === 'string' ? JSON.parse(r.templateData) : r.templateData,
+        }));
+    }
+    const database = await getDB();
+    const rows = await database.getAllAsync('SELECT * FROM recurring_transactions ORDER BY createdAt DESC');
+    return rows.map(r => ({
+        ...r,
+        templateData: safeParse(r.templateData, {}),
+        isActive: !!r.isActive,
+    }));
+}
+
+export async function addRecurringTransaction(rt) {
+    const id = rt.id || generateId();
+    const now = new Date().toISOString();
+
+    if (!isNative) {
+        if (!memStore.recurringTransactions) memStore.recurringTransactions = [];
+        memStore.recurringTransactions.unshift({
+            ...rt, id,
+            templateData: typeof rt.templateData === 'object' ? JSON.stringify(rt.templateData) : rt.templateData,
+            createdAt: now,
+        });
+        saveMemStore();
+        return id;
+    }
+
+    const database = await getDB();
+    await database.runAsync(
+        `INSERT INTO recurring_transactions
+         (id, templateData, frequency, postMode, nextDueDate, lastPostedDate, isActive, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            id,
+            JSON.stringify(rt.templateData || {}),
+            rt.frequency,
+            rt.postMode || 'auto',
+            rt.nextDueDate,
+            rt.lastPostedDate || null,
+            rt.isActive !== false ? 1 : 0,
+            now,
+        ]
+    );
+    return id;
+}
+
+export async function updateRecurringTransaction(rt) {
+    if (!isNative) {
+        if (!memStore.recurringTransactions) memStore.recurringTransactions = [];
+        const idx = memStore.recurringTransactions.findIndex(r => r.id === rt.id);
+        if (idx >= 0) {
+            memStore.recurringTransactions[idx] = {
+                ...memStore.recurringTransactions[idx],
+                ...rt,
+                templateData: typeof rt.templateData === 'object' ? JSON.stringify(rt.templateData) : rt.templateData,
+            };
+        }
+        saveMemStore();
+        return;
+    }
+    const database = await getDB();
+    await database.runAsync(
+        `UPDATE recurring_transactions
+         SET templateData=?, frequency=?, postMode=?, nextDueDate=?, lastPostedDate=?, isActive=?
+         WHERE id=?`,
+        [
+            JSON.stringify(rt.templateData || {}),
+            rt.frequency,
+            rt.postMode || 'auto',
+            rt.nextDueDate,
+            rt.lastPostedDate || null,
+            rt.isActive !== false ? 1 : 0,
+            rt.id,
+        ]
+    );
+}
+
+export async function deleteRecurringTransaction(id) {
+    if (!isNative) {
+        if (!memStore.recurringTransactions) memStore.recurringTransactions = [];
+        memStore.recurringTransactions = memStore.recurringTransactions.filter(r => r.id !== id);
+        saveMemStore();
+        return;
+    }
+    const database = await getDB();
+    await database.runAsync('DELETE FROM recurring_transactions WHERE id=?', [id]);
 }

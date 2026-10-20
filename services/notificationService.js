@@ -153,3 +153,38 @@ export async function rescheduleAllReminders(goals, hour, minute) {
         await scheduleGoalReminder(goal, hour, minute);
     }
 }
+
+/**
+ * Fires an immediate local notification for a recurring transaction that is due
+ * and requires user confirmation before posting.
+ *
+ * @param {object} rt - The recurring transaction template object.
+ *   rt.id, rt.templateData.description, rt.templateData.amount, rt.frequency
+ */
+export async function scheduleRecurringConfirmNotification(rt) {
+    if (Platform.OS === 'web') return;
+
+    const { frequencyLabel } = require('./recurringEngine');
+    const template = rt.templateData || {};
+    const desc = template.description || 'Recurring Transaction';
+    const amt = template.amount ? `$${Number(template.amount).toFixed(2)}` : '';
+    const freqLabel = frequencyLabel(rt.frequency);
+
+    try {
+        await Notifications.scheduleNotificationAsync({
+            identifier: `recurring_confirm_${rt.id}_${Date.now()}`,
+            content: {
+                title: `🔁 ${freqLabel} payment due`,
+                body: `${desc}${amt ? ' · ' + amt : ''} — tap to review and post`,
+                data: {
+                    type: 'recurring_confirm',
+                    recurringId: rt.id,
+                    prefill: JSON.stringify(template),
+                },
+            },
+            trigger: null, // fire immediately
+        });
+    } catch (err) {
+        console.warn('[notificationService] Failed to schedule recurring confirm notification:', err);
+    }
+}

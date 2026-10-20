@@ -34,11 +34,36 @@ export const accountTypes = [
 ];
 
 export function getCategoryById(id) {
-    return (
-        spendingCategories.find(c => c.id === id) ||
-        incomeCategories.find(c => c.id === id) ||
-        { id: 'unknown', name: 'Unknown', icon: 'help-circle-outline', color: '#94a3b8' }
-    );
+    if (!id) return { id: 'unknown', name: 'Unknown', icon: 'help-circle-outline', color: '#94a3b8' };
+
+    // 1. Exact match on ID
+    const exact = spendingCategories.find(c => c.id === id) || incomeCategories.find(c => c.id === id);
+    if (exact) return exact;
+
+    const lower = String(id).toLowerCase().trim();
+
+    // 2. Specific aliases: 'car' / 'transport' / 'vehicle' -> transport ('Car')
+    if (lower === 'transport' || lower === 'car' || lower === 'vehicle') {
+        return spendingCategories.find(c => c.id === 'transport') || { id: 'transport', name: 'Car', icon: 'car-outline', color: '#f97316' };
+    }
+
+    // 3. Case-insensitive ID match
+    const byIdLower = spendingCategories.find(c => c.id.toLowerCase() === lower) ||
+                      incomeCategories.find(c => c.id.toLowerCase() === lower);
+    if (byIdLower) return byIdLower;
+
+    // 4. Match by name (e.g. 'Food', 'Car', 'Daily Needs')
+    const byName = spendingCategories.find(c => c.name.toLowerCase() === lower) ||
+                   incomeCategories.find(c => c.name.toLowerCase() === lower);
+    if (byName) return byName;
+
+    return { id: 'unknown', name: 'Unknown', icon: 'help-circle-outline', color: '#94a3b8' };
+}
+
+export function normalizeCategoryId(id) {
+    if (!id) return 'other_spending';
+    const cat = getCategoryById(id);
+    return cat.id !== 'unknown' ? cat.id : String(id).toLowerCase().trim();
 }
 
 export function getAccountTypeById(id) {
@@ -51,7 +76,7 @@ const categoryKeywords = {
     transport: ['uber', 'grab', 'gojek', 'taxi', 'bus', 'train', 'fuel', 'gas', 'petrol', 'parking', 'toll', 'mrt', 'lrt', 'bensin', 'parkir', 'maintenance', 'service', 'refuel', 'ev charge', 'charging', 'bengkel', 'servis'],
     daily_needs: ['grocery', 'supermarket', 'indomaret', 'alfamart', 'soap', 'shampoo', 'tissue', 'detergent', 'toothpaste'],
     health: ['pharmacy', 'hospital', 'doctor', 'medicine', 'clinic', 'apotek', 'obat', 'vitamin'],
-    shopping: ['mall', 'store', 'amazon', 'shopee', 'tokopedia', 'lazada', 'uniqlo', 'zara', 'h&m', 'clothing', 'shoes'],
+    shopping: ['mall', 'store', 'amazon', 'shopee', 'tokopedia', 'lazada', 'uniqlo', 'zara', 'h&m', 'clothing', 'shoes', 'iphone', 'ipad', 'smartphone', 'gadget', 'laptop', 'electronics'],
     entertainment: ['movie', 'cinema', 'game', 'netflix', 'spotify', 'youtube', 'concert', 'bioskop'],
     education: ['school', 'university', 'course', 'book', 'tuition', 'udemy', 'coursera', 'buku', 'sekolah'],
     bills: ['electric', 'water', 'internet', 'phone', 'pln', 'pdam', 'telkom', 'indihome', 'listrik', 'air'],

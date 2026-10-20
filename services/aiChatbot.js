@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import { formatCurrency } from '../utils/currencies';
 import { filterTransactionsByPeriod, groupByCategory, calculateBudgetUsage } from '../utils/helpers';
 import { getCategoryById, spendingCategories, incomeCategories } from '../utils/categories';
+import { convertCurrency } from './exchangeRates';
 
 export const popularQuestions = [
     { id: 1, text: 'How much did I spend this month?', icon: 'wallet-outline' },
@@ -20,21 +21,22 @@ export const popularQuestions = [
 ];
 
 function buildFinancialContext(state) {
-    const { transactions, budgets, assets, vehicles = [], currency, currentDateKey } = state;
+    const { transactions, budgets, assets, vehicles = [], currency, currentDateKey, exchangeRates } = state;
     const referenceDate = currentDateKey ? new Date(currentDateKey) : new Date();
+    const toBase = (amt, cur) => convertCurrency(amt || 0, cur || currency, currency, exchangeRates);
 
     const monthlySpending = filterTransactionsByPeriod(transactions, 'monthly', referenceDate).filter(t => t.type === 'spending');
     const monthlyIncome = filterTransactionsByPeriod(transactions, 'monthly', referenceDate).filter(t => t.type === 'income');
-    const totalSpending = monthlySpending.reduce((s, t) => s + Math.abs(t.amount), 0);
-    const totalIncome = monthlyIncome.reduce((s, t) => s + Math.abs(t.amount), 0);
+    const totalSpending = monthlySpending.reduce((s, t) => s + Math.abs(toBase(t.amount, t.currency)), 0);
+    const totalIncome = monthlyIncome.reduce((s, t) => s + Math.abs(toBase(t.amount, t.currency)), 0);
 
     const weeklySpending = filterTransactionsByPeriod(transactions, 'weekly', referenceDate).filter(t => t.type === 'spending');
-    const weeklyTotal = weeklySpending.reduce((s, t) => s + Math.abs(t.amount), 0);
+    const weeklyTotal = weeklySpending.reduce((s, t) => s + Math.abs(toBase(t.amount, t.currency)), 0);
 
     const dailySpending = filterTransactionsByPeriod(transactions, 'daily', referenceDate).filter(t => t.type === 'spending');
-    const dailyTotal = dailySpending.reduce((s, t) => s + Math.abs(t.amount), 0);
+    const dailyTotal = dailySpending.reduce((s, t) => s + Math.abs(toBase(t.amount, t.currency)), 0);
 
-    const catGroups = groupByCategory(monthlySpending);
+    const catGroups = groupByCategory(monthlySpending, (t) => toBase(t.amount, t.currency));
     const categoryBreakdown = Object.entries(catGroups)
         .map(([id, data]) => ({
             name: getCategoryById(id).name,
@@ -62,7 +64,7 @@ function buildFinancialContext(state) {
         type: a.type,
         balance: a.balance,
     }));
-    const totalAssets = assets.reduce((s, a) => s + a.balance, 0);
+    const totalAssets = assets.reduce((s, a) => s + toBase(a.balance, a.currency), 0);
     const recentTransactions = [...transactions]
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 10);
@@ -218,7 +220,7 @@ export async function sendLocalChatMessage(userMessage, state, chatHistory = [],
     const contextWithAttachments = attachmentContext
         ? `${financialContext}\n\n### Attached Files\n${attachmentContext}`
         : financialContext;
-        
+
     const template = isTransactionMode ? SYSTEM_PROMPT_TRANSACTION : SYSTEM_PROMPT_GENERAL;
     const systemPrompt = template.replace('{CONTEXT}', contextWithAttachments);
 
@@ -241,51 +243,6 @@ export async function sendLocalChatMessage(userMessage, state, chatHistory = [],
     return response;
 }
 
-// ─── CLOUD AI (API fallback) ──────────────────
-export async function sendCloudChatMessage(userMessage, state, chatHistory = [], apiKey, endpoint = 'https://dashscope.aliyuncs.com/compatible-mode/v1', attachments = [], isTransactionMode = false) {
-    if (!apiKey) {
-        throw new Error('AI API key is required. Please set it in Settings.');
-    }
-
-    const financialContext = buildFinancialContext(state);
-    const attachmentContext = buildAttachmentContext(attachments);
-    const contextWithAttachments = attachmentContext
-        ? `${financialContext}\n\n### Attached Files\n${attachmentContext}`
-        : financialContext;
-        
-    const template = isTransactionMode ? SYSTEM_PROMPT_TRANSACTION : SYSTEM_PROMPT_GENERAL;
-    const systemPrompt = template.replace('{CONTEXT}', contextWithAttachments);
-    const safeHistory = trimChatHistory(chatHistory, 1600);
-
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        ...safeHistory.map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: userMessage },
-    ];
-
-    const response = await fetch(`${endpoint}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-            model: 'qwen-plus',
-            messages,
-            max_tokens: 1000,
-            temperature: 0.7,
-            stream: false,
-        }),
-    });
-
-    if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`AI API Error: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || 'Sorry, I could not generate a response.';
-}
 
 // ─── Unified send (local-only) ─
 export async function sendChatMessage(userMessage, state, chatHistory = [], onToken, attachments = [], isTransactionMode = false) {

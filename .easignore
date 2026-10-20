@@ -1,0 +1,14 @@
+# Ignore local test/migration scripts and test files during EAS cloud builds
+test_receipt_ocr.js
+verify_assets.js
+fix_*.js
+*Node.js
+generate_and_test*.js
+rename_*.js
+replace_*.js
+revert_*.js
+*.zip
+*.apk
+financeflow_export_*.json
+financeflow_audit.txt
+audit_part*.txt

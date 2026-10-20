@@ -75,6 +75,26 @@ export default function VehicleDashboard() {
         return { totalCost, totalVolume, totalDistance, latestOdo, avgEfficiency, costPerKm, refuelCount: refuels.length };
     }, [vehicleTransactions, vehicle]);
 
+    // Build enriched transaction list with computed per-tx metrics
+    const enrichedTransactions = useMemo(() => {
+        const refuels = [...vehicleTransactions]
+            .filter(t => t.vehicleLogType === 'refuel')
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const refuelWithPrev = refuels.map((r, idx) => {
+            const prevOdo = idx === 0
+                ? (vehicle?.initialOdometer || null)
+                : (refuels[idx - 1]?.vehicleOdometer || null);
+            return { ...r, _prevOdo: prevOdo };
+        });
+        const refuelMap = Object.fromEntries(refuelWithPrev.map(r => [r.id, r]));
+
+        return filteredTransactions.map(tx => ({
+            ...tx,
+            _prevOdo: refuelMap[tx.id]?._prevOdo ?? null
+        }));
+    }, [filteredTransactions, vehicleTransactions, vehicle]);
+
     if (!vehicle) {
         return (
             <View style={[s.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', paddingTop: Platform.OS === 'android' ? insets.top : 0 }]}>
@@ -109,26 +129,6 @@ export default function VehicleDashboard() {
     const border = colors.border;
     const cardBg = colors.card;
 
-    // Build enriched transaction list with computed per-tx metrics
-    const enrichedTransactions = useMemo(() => {
-        const refuels = [...vehicleTransactions]
-            .filter(t => t.vehicleLogType === 'refuel')
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-        const refuelWithPrev = refuels.map((r, idx) => {
-            const prevOdo = idx === 0
-                ? (vehicle?.initialOdometer || null)
-                : (refuels[idx - 1]?.vehicleOdometer || null);
-            return { ...r, _prevOdo: prevOdo };
-        });
-        const refuelMap = Object.fromEntries(refuelWithPrev.map(r => [r.id, r]));
-
-        return filteredTransactions.map(tx => ({
-            ...tx,
-            _prevOdo: refuelMap[tx.id]?._prevOdo ?? null
-        }));
-    }, [filteredTransactions, vehicleTransactions, vehicle]);
-
     return (
         <View style={[s.container, { backgroundColor: colors.background, paddingTop: Platform.OS === 'android' ? insets.top : 0 }]}>
             {/* Gradient background */}
@@ -143,15 +143,12 @@ export default function VehicleDashboard() {
                 <Rect x="0" y="0" width={screenWidth} height={screenHeight} fill="url(#vBg)" />
             </Svg>
 
-            {/* Drag handle – indicates swipe-to-close */}
-            <View style={s.dragHandle}>
-                <View style={[s.dragBar, { backgroundColor: colors.textSecondary }]} />
-            </View>
+            <View style={[s.handle, { backgroundColor: colors.border }]} />
 
             {/* Header */}
             <View style={s.header}>
                 <TouchableOpacity
-                    onPress={() => router.back()}
+                    onPress={() => { if (router.canDismiss?.()) { router.dismiss(); } else { router.back(); } }}
                     style={[s.headerIconBtn, { backgroundColor: cardBg, borderColor: border, borderWidth: 1 }]}
                 >
                     <Ionicons name="arrow-back" size={20} color={purple} />
@@ -206,47 +203,7 @@ export default function VehicleDashboard() {
                     </View>
                 </View>
 
-                {/* ── OBD Saved Trip Data ── */}
-                {(vehicle.totalDistance > 0 || vehicle.totalDrivingTime > 0) && (
-                    <View style={[s.obdSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                        <View style={s.obdSectionHeader}>
-                            <View style={[s.obdSectionIcon, { backgroundColor: `${colors.primary}15` }]}>
-                                <Ionicons name="bluetooth" size={14} color={colors.primary} />
-                            </View>
-                            <Text style={[s.obdSectionTitle, { color: textPrimary }]}>OBD Trip History</Text>
-                            <Text style={[s.obdSectionSub, { color: textSec }]}>Saved from last session</Text>
-                        </View>
-                        <View style={s.obdGrid}>
-                            <View style={s.obdItem}>
-                                <Text style={[s.obdVal, { color: textPrimary }]}>
-                                    {vehicle.totalDistance ? vehicle.totalDistance.toFixed(1) : '0'}
-                                </Text>
-                                <Text style={[s.obdUnit, { color: colors.primary }]}>km</Text>
-                                <Text style={[s.obdLbl, { color: textSec }]}>Trip Distance</Text>
-                            </View>
-                            <View style={[s.obdDivider, { backgroundColor: colors.border }]} />
-                            <View style={s.obdItem}>
-                                <Text style={[s.obdVal, { color: textPrimary }]}>
-                                    {formatTime(vehicle.totalDrivingTime)}
-                                </Text>
-                                <Text style={[s.obdUnit, { color: '#F59E0B' }]}>hrs</Text>
-                                <Text style={[s.obdLbl, { color: textSec }]}>Drive Time</Text>
-                            </View>
-                            {vehicle.totalFuelConsumed > 0 && (
-                                <>
-                                    <View style={[s.obdDivider, { backgroundColor: colors.border }]} />
-                                    <View style={s.obdItem}>
-                                        <Text style={[s.obdVal, { color: textPrimary }]}>
-                                            {vehicle.totalFuelConsumed.toFixed(2)}
-                                        </Text>
-                                        <Text style={[s.obdUnit, { color: '#10B981' }]}>L</Text>
-                                        <Text style={[s.obdLbl, { color: textSec }]}>Fuel Used</Text>
-                                    </View>
-                                </>
-                            )}
-                        </View>
-                    </View>
-                )}
+
 
                 {/* Filter chips */}
                 <View style={s.sortRow}>
@@ -476,27 +433,24 @@ function DetailRow({ icon, iconColor, label, value, highlight, colors }) {
 
 const s = StyleSheet.create({
     container: { flex: 1 },
-
+    handle: {
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: "rgba(83,96,132,0.2)",
+        alignSelf: "center",
+        marginTop: Spacing.md,
+    },
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         paddingHorizontal: Spacing.lg,
-        paddingTop: Platform.OS === 'ios' ? 8 : 8,
-        paddingBottom: Spacing.md,
+        paddingVertical: Spacing.md,
     },
     headerIconBtn: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
     headerCenter: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
     headerAvatar: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
     headerTitle: { fontSize: FontSize.md, fontFamily: 'Poppins_700Bold' },
     headerSub: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular' },
-
-    dragHandle: {
-        alignItems: 'center',
-        paddingTop: Platform.OS === 'ios' ? 12 : 8,
-        paddingBottom: 4,
-    },
-    dragBar: {
-        width: 36, height: 4, borderRadius: 2, opacity: 0.35,
-    },
 
     kpiGrid: {
         flexDirection: 'row', flexWrap: 'wrap',
@@ -631,39 +585,5 @@ const s = StyleSheet.create({
         fontFamily: 'Poppins_600SemiBold',
         color: '#dc2626',
     },
-    // OBD section
-    obdSection: {
-        borderRadius: 16, borderWidth: 1, padding: Spacing.md,
-        marginBottom: Spacing.md,
-    },
-    obdSectionHeader: {
-        flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing.md,
-    },
-    obdSectionIcon: {
-        width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-    },
-    obdSectionTitle: {
-        fontFamily: 'Poppins_700Bold', fontSize: FontSize.sm, flex: 1,
-    },
-    obdSectionSub: {
-        fontFamily: 'Poppins_400Regular', fontSize: 11,
-    },
-    obdGrid: {
-        flexDirection: 'row', alignItems: 'center',
-    },
-    obdItem: {
-        flex: 1, alignItems: 'center',
-    },
-    obdVal: {
-        fontFamily: 'Poppins_700Bold', fontSize: FontSize.lg,
-    },
-    obdUnit: {
-        fontFamily: 'Poppins_600SemiBold', fontSize: 11, marginTop: -2,
-    },
-    obdLbl: {
-        fontFamily: 'Poppins_400Regular', fontSize: 11, textAlign: 'center', marginTop: 2,
-    },
-    obdDivider: {
-        width: 1, height: 40, opacity: 0.5,
-    },
+
 });

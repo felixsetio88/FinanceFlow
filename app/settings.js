@@ -302,7 +302,7 @@ export default function Settings() {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" scrollEventThrottle={16}>
 
                 {/* Appearance */}
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={[styles.section, { backgroundColor: colors.card }]}>
                     <SectionHeader icon="color-palette" color={colors.primary} title="Appearance" />
                     <Text style={[styles.helperText, { color: colors.textMuted }]}>Choose how the app looks</Text>
                     <View style={styles.themeRow}>
@@ -329,7 +329,7 @@ export default function Settings() {
                 </View>
 
                 {/* Finance Management */}
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={[styles.section, { backgroundColor: colors.card }]}>
                     <SectionHeader icon="grid" color={colors.primary} title="Finance Management" />
                     <View style={styles.manageGrid}>
                         {[
@@ -353,7 +353,7 @@ export default function Settings() {
                 </View>
 
                 {/* Currency */}
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={[styles.section, { backgroundColor: colors.card }]}>
                     <SectionHeader icon="cash" color={colors.emerald} title="Currency" />
                     <View style={styles.currencyGrid}>
                         {(showAllCurrencies ? currencies : getTopCurrencies(currency)).map(c => (
@@ -396,7 +396,7 @@ export default function Settings() {
                 </View>
 
                 {/* Local AI Models */}
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={[styles.section, { backgroundColor: colors.card }]}>
                     <SectionHeader icon="hardware-chip" color={colors.blue} title="Local AI Models" />
                     {hasActiveTask && (
                         <View style={[styles.taskBanner, { backgroundColor: isDark ? 'rgba(245,158,11,0.1)' : 'rgba(245,158,11,0.05)', borderColor: isDark ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.15)' }]}>
@@ -675,7 +675,7 @@ export default function Settings() {
                 </View>
 
                 {/* Export */}
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={[styles.section, { backgroundColor: colors.card }]}>
                     <SectionHeader icon="download" color={colors.gold} title="Export Data" />
                     <View style={styles.btnRow}>
                         <TouchableOpacity style={[styles.exportBtn, { backgroundColor: colors.inputBg, borderColor: colors.border }]} onPress={handleExportJSON} disabled={exporting} activeOpacity={0.82}>
@@ -691,7 +691,7 @@ export default function Settings() {
                 </View>
 
                 {/* Import */}
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={[styles.section, { backgroundColor: colors.card }]}>
                     <SectionHeader icon="cloud-upload" color={colors.blue} title="Import Data" />
                     <View style={styles.btnRow}>
                         <TouchableOpacity style={[styles.importBtn, { backgroundColor: colors.inputBg, borderColor: colors.border }]} onPress={() => handleImport('json')} disabled={importing} activeOpacity={0.82}>
@@ -703,41 +703,42 @@ export default function Settings() {
                             <Text style={[styles.importBtnText, { color: colors.textPrimary }]}>Excel</Text>
                         </TouchableOpacity>
                     </View>
-
-                    {/* PDF Bank Statement — navigates to dedicated page */}
-                    <NavRow
-                        icon="document-text-outline"
-                        iconBg={isDark ? 'rgba(30,201,142,0.18)' : 'rgba(30,201,142,0.12)'}
-                        iconColor={colors.emerald}
-                        label="PDF Bank Statement Import"
-                        sublabel="Local AI reads your statement — fully offline"
-                        onPress={() => router.push('/pdf-statement-import')}
-                    />
-
-                    {/* Financial Health */}
-                    <NavRow
-                        icon="heart-outline"
-                        iconBg={isDark ? 'rgba(255,102,0,0.18)' : 'rgba(255,102,0,0.10)'}
-                        iconColor={colors.primary}
-                        label="Financial Health"
-                        onPress={() => router.push('/financial-health')}
-                    />
-
                     {importing && <ActivityIndicator style={{ marginTop: 10 }} color={colors.primary} />}
                 </View>
 
+                {/* Log */}
+                <TouchableOpacity
+                    style={[styles.section, styles.aboutButtonSection, { backgroundColor: colors.card }]}
+                    onPress={() => router.push('/log')}
+                    activeOpacity={0.8}
+                >
+                    <View style={styles.aboutBtnRow}>
+                        <View style={styles.aboutBtnLeft}>
+                            <View style={[styles.sectionIconWrap, { backgroundColor: `${colors.primary}15` }]}>
+                                <Ionicons name="document-text-outline" size={18} color={colors.primary} />
+                            </View>
+                            <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginBottom: 0 }]}>Log</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                    </View>
+                </TouchableOpacity>
+
                 {/* About */}
-                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <SectionHeader icon="information-circle" color={colors.primary} title="About" />
-                    <View style={styles.aboutRow}>
-                        <Text style={[styles.aboutLabel, { color: colors.textSecondary }]}>App</Text>
-                        <Text style={[styles.aboutValue, { color: colors.textPrimary }]}>FinanceFlow Preview v1.0</Text>
+                <TouchableOpacity
+                    style={[styles.section, styles.aboutButtonSection, { backgroundColor: colors.card }]}
+                    onPress={() => router.push('/about')}
+                    activeOpacity={0.8}
+                >
+                    <View style={styles.aboutBtnRow}>
+                        <View style={styles.aboutBtnLeft}>
+                            <View style={[styles.sectionIconWrap, { backgroundColor: `${colors.primary}15` }]}>
+                                <Ionicons name="information-circle" size={18} color={colors.primary} />
+                            </View>
+                            <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginBottom: 0 }]}>About</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                     </View>
-                    <View style={styles.aboutRow}>
-                        <Text style={[styles.aboutLabel, { color: colors.textSecondary }]}>Copyright © 2026</Text>
-                        <Text style={[styles.aboutValue, { color: colors.textPrimary }]}>Developed with Love</Text>
-                    </View>
-                </View>
+                </TouchableOpacity>
 
                 <View style={{ height: 60 }} />
             </ScrollView>
@@ -826,7 +827,7 @@ const styles = StyleSheet.create({
     title: { fontSize: FontSize.xl, fontFamily: 'Poppins_800ExtraBold' },
     scrollContent: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm },
     section: {
-        borderRadius: 22, padding: Spacing.lg, borderWidth: 1,
+        borderRadius: 22, padding: Spacing.lg,
         marginBottom: Spacing.md,
         shadowColor: '#1A1040', shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.05, shadowRadius: 8,
@@ -941,12 +942,20 @@ const styles = StyleSheet.create({
     navIconWrap: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
     navLabel: { fontSize: FontSize.sm, fontFamily: 'Poppins_600SemiBold' },
     navSublabel: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', marginTop: 1 },
-    aboutRow: {
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(83,96,132,0.08)',
+    aboutButtonSection: {
+        paddingVertical: 14,
+        paddingHorizontal: Spacing.lg,
     },
-    aboutLabel: { fontSize: FontSize.sm, fontFamily: 'Poppins_400Regular' },
-    aboutValue: { fontSize: FontSize.sm, fontFamily: 'Poppins_600SemiBold' },
+    aboutBtnRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    aboutBtnLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.sm,
+    },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: Spacing.lg },
     modalBox: { width: '100%', borderRadius: 24, padding: Spacing.lg },
     modalHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.lg },

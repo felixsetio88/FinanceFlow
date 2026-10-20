@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-    Platform, View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Alert, KeyboardAvoidingView
+    Platform, View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView
 } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-svg';
 import { useRouter } from 'expo-router';
@@ -9,11 +9,11 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../context/AppContext';
 import { generateId } from '../utils/helpers';
 import { accountTypes, getAccountTypeById } from '../utils/categories';
-import { formatCurrency, currencies, getTopCurrencies } from '../utils/currencies';
+import { formatCurrency, currencies, getTopCurrencies, parseCurrencyAmount } from '../utils/currencies';
 import { Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { importFromJSON, applyImport } from '../services/dataExport';
+import FastInput from '../components/FastInput';
 
-// Accent colours (not theme-dependent — onboarding is always light-ish)
 const P = '#ff6600';
 const E = '#1EC98E';
 const CARD = 'rgba(255,255,255,0.90)';
@@ -43,12 +43,20 @@ function getCardColor(asset, index) {
 
 export default function Onboarding() {
     const router = useRouter();
-    const { addAsset, addBudget, addSavingGoal, setOnboardingCompleted, currency, setCurrency, loadData } = useApp();
+    const { addAsset, addBudget, addSavingGoal, setOnboardingCompleted, currency, setCurrency, loadData, onboardingCompleted, assets: appAssets, transactions: appTransactions } = useApp();
+
+    useEffect(() => {
+        if (onboardingCompleted || (appAssets && appAssets.length > 0) || (appTransactions && appTransactions.length > 0)) {
+            router.replace('/(tabs)');
+        }
+    }, [onboardingCompleted, appAssets, appTransactions]);
 
     const [step, setStep] = useState(0);
+    const [agreedToTerms, setAgreedToTerms] = useState(false);
     const [choice, setChoice] = useState(null); // 'new' or 'backup'
     const [selectedCurrency, setSelectedCurrency] = useState(currency || 'USD');
     const [importing, setImporting] = useState(false);
+    const [isFinishing, setIsFinishing] = useState(false);
     const [assets, setAssets] = useState([]);
     const [assetName, setAssetName] = useState('');
     const [assetType, setAssetType] = useState('bank');
@@ -69,17 +77,22 @@ export default function Onboarding() {
     const [goalNotify, setGoalNotify] = useState(false);
 
     const addLocalGoal = () => {
-        if (!goalTitle.trim() || parseFloat(goalAmount) <= 0) {
+        const parsedGoalAmt = parseCurrencyAmount(goalAmount, selectedCurrency);
+        if (!goalTitle.trim() || parsedGoalAmt <= 0) {
             Alert.alert('Error', 'Please enter a valid goal title and target amount.');
             return;
         }
         if (goalStart && goalEnd && new Date(goalStart) > new Date(goalEnd)) {
-            Alert.alert('Error', 'Start date cannot be later than end date.'); return;
+            Alert.alert('Error', 'Start date cannot be later than end date.');
+            return;
         }
-        if (goalNotify && !goalCommitment) { Alert.alert('Error', 'Please choose a reminder frequency.'); return; }
+        if (goalNotify && !goalCommitment) {
+            Alert.alert('Error', 'Please choose a reminder frequency.');
+            return;
+        }
 
         setGoals([...goals, {
-            id: generateId(), title: goalTitle.trim(), targetAmount: parseFloat(goalAmount),
+            id: generateId(), title: goalTitle.trim(), targetAmount: parsedGoalAmt,
             currentAmount: 0, startDate: goalStart || null, endDate: goalEnd || null,
             commitment: goalCommitment || null, notifyEnabled: goalNotify, savingHistory: [], isCompleted: false,
         }]);
@@ -90,7 +103,7 @@ export default function Onboarding() {
 
     const addLocalAsset = () => {
         if (!assetName.trim()) { Alert.alert('Error', 'Enter account name'); return; }
-        const bal = parseFloat(assetBalance) || 0;
+        const bal = parseCurrencyAmount(assetBalance, assetCurrency);
         setAssets([...assets, { id: generateId(), name: assetName.trim(), type: assetType, balance: bal, color: assetColor, currency: assetCurrency }]);
         setAssetName(''); setAssetBalance(''); setAssetType('bank'); setAssetColor('#ff6600'); setAssetCurrency(selectedCurrency); setShowAllCurrencies(false); setShowAssetForm(false);
     };
@@ -158,26 +171,37 @@ export default function Onboarding() {
     };
 
     const handleFinish = async () => {
+        if (isFinishing) return;
+        setIsFinishing(true);
         try {
             for (const a of assets) await addAsset(a);
-            const amt = parseFloat(budgetAmount);
+            const amt = parseCurrencyAmount(budgetAmount, selectedCurrency);
             if (amt > 0) await addBudget({ id: generateId(), period: budgetPeriod, amount: amt });
             for (const g of goals) {
                 await addSavingGoal(g);
             }
             await setOnboardingCompleted();
             router.replace('/(tabs)');
-        } catch (e) { console.error(e); Alert.alert('Error', 'Something went wrong. Please try again.'); }
+        } catch (e) {
+            console.error(e);
+            Alert.alert('Error', 'Something went wrong. Please try again.');
+            setIsFinishing(false);
+        }
     };
 
     const canNext = () => {
-        if (step <= 1) return true; // Welcome and Privacy screens
-        if (step === 2) return choice === 'new'; // Choice screen
-        if (step === 3) return !!selectedCurrency; // Currency
+        if (step === 0) return true;
+        if (step === 1) return agreedToTerms; // Must agree to Terms, AI Disclaimer & No-Warranty clause
+        if (step === 2) return choice === 'new';
+        if (step === 3) return !!selectedCurrency;
         return true;
     };
 
     const nextStep = () => {
+        if (step === 1 && !agreedToTerms) {
+            Alert.alert('Agreement Required', 'Please review and agree to the Terms of Use, AI Disclaimer, and Data Loss Policy to continue.');
+            return;
+        }
         if (step === 2 && choice === 'backup') {
             Alert.alert('Import Backup', 'Please import your backup file below to restore your data, or select "I\'m New Here" to start fresh.');
             return;
@@ -206,7 +230,7 @@ export default function Onboarding() {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
                 {/* ── Step 0: Welcome ── */}
                 {step === 0 && (
-                    <View>
+                    <View style={s.stepWrapWelcome}>
                         <View style={s.logoWrap}>
                             <View style={s.logoCircle}>
                                 <Ionicons name="trending-up" size={36} color="#fff" />
@@ -231,11 +255,11 @@ export default function Onboarding() {
                     </View>
                 )}
 
-                {/* ── Step 1: Privacy & Offline Notice ── */}
+                {/* ── Step 1: Privacy, AI Disclaimer & No-Warranty Terms ── */}
                 {step === 1 && (
-                    <View>
-                        <Text style={s.heading}>Before We Start</Text>
-                        <Text style={s.sub}>FinanceFlow is designed with strict privacy in mind.</Text>
+                    <View style={s.stepWrapIntro}>
+                        <Text style={s.heading}>Terms & Disclaimers</Text>
+                        <Text style={s.sub}>Please review and accept our privacy, AI, and data storage terms before using FinanceFlow.</Text>
 
                         <View style={s.featuresList}>
                             <View style={s.featureRow}>
@@ -243,35 +267,53 @@ export default function Onboarding() {
                                     <Ionicons name="shield-checkmark" size={24} color="#10B981" />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={s.featureTitle}>100% Offline Data</Text>
-                                    <Text style={s.featureDesc}>All your financial data, accounts, and transactions are stored entirely on this device. Your data never leaves your phone.</Text>
+                                    <Text style={s.featureTitle}>100% Local & Private Data</Text>
+                                    <Text style={s.featureDesc}>All financial records, accounts, and transactions are stored locally on your device. Internet is used only for anonymous currency exchange rates and optional AI model downloads.</Text>
                                 </View>
                             </View>
+
+                            <View style={s.featureRow}>
+                                <View style={[s.featureIconWrap, { backgroundColor: '#EF444418' }]}>
+                                    <Ionicons name="alert-circle" size={24} color="#EF4444" />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={s.featureTitle}>Not Financial Advice (AI Disclaimer)</Text>
+                                    <Text style={s.featureDesc}>All content, scores, and insights generated by the AI Assistant, Financial Health analyzer, and OCR/PDF tools are for informational and educational purposes only and do NOT constitute certified financial, investment, tax, or legal advice. AI outputs may contain errors or inaccuracies. Always consult a qualified financial professional before making financial decisions.</Text>
+                                </View>
+                            </View>
+
                             <View style={s.featureRow}>
                                 <View style={[s.featureIconWrap, { backgroundColor: '#F59E0B18' }]}>
-                                    <Ionicons name="globe-outline" size={24} color="#F59E0B" />
+                                    <Ionicons name="warning" size={24} color="#F59E0B" />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={s.featureTitle}>Internet Usage</Text>
-                                    <Text style={s.featureDesc}>The app only requires an internet connection for live currency conversion rates and downloading local AI models for the first time.</Text>
-                                </View>
-                            </View>
-                            <View style={s.featureRow}>
-                                <View style={[s.featureIconWrap, { backgroundColor: '#8B5CF618' }]}>
-                                    <Ionicons name="document-text" size={24} color="#8B5CF6" />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={s.featureTitle}>Privacy Policy</Text>
-                                    <Text style={s.featureDesc}>We do not collect, sell, or analyze your personal financial information. It is yours, completely local and private.</Text>
+                                    <Text style={s.featureTitle}>"As-Is" / No Warranty for Data Loss</Text>
+                                    <Text style={s.featureDesc}>FinanceFlow is provided "AS IS" without warranties of any kind. Because all data is stored locally on your device without cloud synchronization, the developer is not responsible or liable for any data loss, corruption, or financial discrepancy resulting from device loss, hardware damage, OS updates, or app uninstallation. You are solely responsible for exporting regular backups via Settings.</Text>
                                 </View>
                             </View>
                         </View>
+
+                        <TouchableOpacity
+                            style={[
+                                s.agreeBox,
+                                agreedToTerms && { borderColor: P, backgroundColor: 'rgba(255,102,0,0.08)' }
+                            ]}
+                            onPress={() => setAgreedToTerms(!agreedToTerms)}
+                            activeOpacity={0.8}
+                        >
+                            <View style={[s.checkbox, agreedToTerms && { backgroundColor: P, borderColor: P }]}>
+                                {agreedToTerms && <Ionicons name="checkmark" size={14} color="#fff" />}
+                            </View>
+                            <Text style={s.agreeText}>
+                                I have read, understood, and agree to the <Text style={{ fontFamily: 'Poppins_700Bold', color: TEXT }}>Not Financial Advice Disclaimer</Text>, the <Text style={{ fontFamily: 'Poppins_700Bold', color: TEXT }}>"As-Is" No Warranty Clause for Data Loss</Text>, and the <Text style={{ fontFamily: 'Poppins_700Bold', color: TEXT }}>Privacy Policy</Text>.
+                            </Text>
+                        </TouchableOpacity>
                     </View>
                 )}
 
                 {/* ── Step 2: Getting Started Choice ── */}
                 {step === 2 && (
-                    <View>
+                    <View style={s.stepWrapIntro}>
                         <Text style={s.heading}>How would you like to start?</Text>
                         <Text style={s.sub}>Choose whether you are starting fresh or restoring an existing backup file.</Text>
 
@@ -396,7 +438,6 @@ export default function Onboarding() {
                             </TouchableOpacity>
                         ) : (
                             <View style={s.formCard}>
-                                {/* Preview Card */}
                                 <View style={[s.cardPreview, { backgroundColor: assetColor }]}>
                                     <View style={s.previewTop}>
                                         <View style={s.chip}>
@@ -409,13 +450,13 @@ export default function Onboarding() {
                                         {assetName || 'Account Name'}
                                     </Text>
                                     <Text style={s.previewBalance}>
-                                        {formatCurrency(parseFloat(assetBalance) || 0, assetCurrency)}
+                                        {formatCurrency(parseCurrencyAmount(assetBalance, assetCurrency), assetCurrency)}
                                     </Text>
                                     <Text style={s.previewType}>{getAccountTypeById(assetType).name}</Text>
                                 </View>
 
                                 <Text style={s.inputLabel}>Account Name</Text>
-                                <TextInput style={s.input} placeholder="e.g. Savings Account" placeholderTextColor={MUTED}
+                                <FastInput style={s.input} placeholder="e.g. Savings Account" placeholderTextColor={MUTED}
                                     value={assetName} onChangeText={setAssetName} />
                                 <Text style={s.inputLabel}>Type</Text>
                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.md }}>
@@ -465,7 +506,7 @@ export default function Onboarding() {
                                     )}
                                 </View>
                                 <Text style={s.inputLabel}>Balance ({assetCurrency})</Text>
-                                <TextInput style={s.input} placeholder="0" placeholderTextColor={MUTED}
+                                <FastInput style={s.input} placeholder="0" placeholderTextColor={MUTED}
                                     value={assetBalance} onChangeText={setAssetBalance} keyboardType="numeric" />
                                 <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
                                     <TouchableOpacity style={[s.formBtn, { flex: 1, backgroundColor: CARD, borderWidth: 1, borderColor: BORDER }]}
@@ -499,8 +540,8 @@ export default function Onboarding() {
                                 </TouchableOpacity>
                             ))}
                         </View>
-                        <Text style={s.inputLabel}>Spending Limit ({currency})</Text>
-                        <TextInput style={[s.input, s.bigInput]} placeholder="0" placeholderTextColor={MUTED}
+                        <Text style={s.inputLabel}>Spending Limit ({selectedCurrency})</Text>
+                        <FastInput style={[s.input, s.bigInput]} placeholder="0" placeholderTextColor={MUTED}
                             value={budgetAmount} onChangeText={setBudgetAmount} keyboardType="numeric" />
                         <Text style={s.skipNote}>You can skip this and set a budget later in the Budget tab.</Text>
                     </View>
@@ -524,7 +565,7 @@ export default function Onboarding() {
                                     </TouchableOpacity>
                                 </View>
                                 <Text style={s.atmCardBalance}>
-                                    {formatCurrency(g.targetAmount, currency)}
+                                    {formatCurrency(g.targetAmount, selectedCurrency)}
                                 </Text>
                                 {g.endDate && (
                                     <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontFamily: 'Poppins_500Medium', marginTop: 4 }}>
@@ -542,20 +583,20 @@ export default function Onboarding() {
                         ) : (
                             <View style={s.formCard}>
                                 <Text style={s.inputLabel}>What is this saving for?</Text>
-                                <TextInput style={s.input} placeholder="e.g. Buy a new PC" placeholderTextColor={MUTED}
+                                <FastInput style={s.input} placeholder="e.g. Buy a new PC" placeholderTextColor={MUTED}
                                     value={goalTitle} onChangeText={setGoalTitle} />
-                                <Text style={s.inputLabel}>Target Amount ({currency})</Text>
-                                <TextInput style={s.input} placeholder="0" placeholderTextColor={MUTED}
+                                <Text style={s.inputLabel}>Target Amount ({selectedCurrency})</Text>
+                                <FastInput style={s.input} placeholder="0" placeholderTextColor={MUTED}
                                     value={goalAmount} onChangeText={setGoalAmount} keyboardType="numeric" />
                                 <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
                                     <View style={{ flex: 1 }}>
                                         <Text style={s.inputLabel}>Start Date</Text>
-                                        <TextInput style={s.input} placeholder="YYYY-MM-DD" placeholderTextColor={MUTED}
+                                        <FastInput style={s.input} placeholder="YYYY-MM-DD" placeholderTextColor={MUTED}
                                             value={goalStart} onChangeText={setGoalStart} />
                                     </View>
                                     <View style={{ flex: 1 }}>
                                         <Text style={s.inputLabel}>End Date</Text>
-                                        <TextInput style={s.input} placeholder="YYYY-MM-DD" placeholderTextColor={MUTED}
+                                        <FastInput style={s.input} placeholder="YYYY-MM-DD" placeholderTextColor={MUTED}
                                             value={goalEnd} onChangeText={setGoalEnd} />
                                     </View>
                                 </View>
@@ -604,10 +645,13 @@ export default function Onboarding() {
                     </TouchableOpacity>
                 ) : <View style={{ flex: 1 }} />}
                 <TouchableOpacity
-                    style={[s.nextBtn, !canNext() && { opacity: 0.5 }]}
+                    style={[s.nextBtn, (!canNext() || isFinishing) && { opacity: 0.5 }]}
+                    disabled={isFinishing}
                     onPress={nextStep}>
-                    <Text style={s.nextBtnText}>{step === 6 ? 'Get Started' : 'Next'}</Text>
-                    <Ionicons name={step === 6 ? 'checkmark' : 'chevron-forward'} size={18} color="#fff" />
+                    <Text style={s.nextBtnText}>
+                        {step === 1 ? 'Agree & Continue' : step === 6 ? 'Get Started' : 'Next'}
+                    </Text>
+                    <Ionicons name={step === 6 || step === 1 ? 'checkmark' : 'chevron-forward'} size={18} color="#fff" />
                 </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>
@@ -617,7 +661,9 @@ export default function Onboarding() {
 const s = StyleSheet.create({
     root: { flex: 1 },
     scroll: { paddingHorizontal: Spacing.lg, paddingTop: Platform.OS === 'ios' ? 64 : 40, paddingBottom: 32 },
-    logoWrap: { alignItems: 'center', marginBottom: Spacing.lg, marginTop: Spacing.sm },
+    stepWrapWelcome: { paddingTop: Platform.OS === 'ios' ? 20 : 12 },
+    stepWrapIntro: { paddingTop: Platform.OS === 'ios' ? 24 : 16 },
+    logoWrap: { alignItems: 'center', marginBottom: Spacing.lg, marginTop: Platform.OS === 'ios' ? 24 : 16 },
     logoCircle: {
         width: 80, height: 80, borderRadius: 24,
         backgroundColor: P, alignItems: 'center', justifyContent: 'center',
@@ -630,18 +676,22 @@ const s = StyleSheet.create({
     },
     sub: {
         fontSize: FontSize.md, color: TEXT2, fontFamily: 'Poppins_400Regular',
-        marginBottom: Spacing.xl, lineHeight: 22, textAlign: 'center',
+        marginBottom: Spacing.lg, lineHeight: 22, textAlign: 'center',
     },
-
-    featuresList: { marginTop: Spacing.md, gap: Spacing.md },
+    featuresList: { marginTop: Spacing.xs, gap: Spacing.md },
     featureRow: {
-        flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+        flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md,
         padding: Spacing.md, backgroundColor: CARD, borderRadius: BorderRadius.lg,
     },
-    featureIconWrap: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+    featureIconWrap: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
     featureTitle: { fontSize: FontSize.md, fontFamily: 'Poppins_700Bold', color: TEXT },
-    featureDesc: { fontSize: FontSize.sm, color: TEXT2, fontFamily: 'Poppins_400Regular', marginTop: 2, lineHeight: 18 },
-
+    featureDesc: { fontSize: FontSize.xs, color: TEXT2, fontFamily: 'Poppins_400Regular', marginTop: 3, lineHeight: 18 },
+    agreeBox: {
+        flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md,
+        marginTop: Spacing.lg, padding: Spacing.md, borderRadius: BorderRadius.lg,
+        backgroundColor: CARD, borderWidth: 1.5, borderColor: BORDER,
+    },
+    agreeText: { flex: 1, fontSize: FontSize.xs, color: TEXT2, fontFamily: 'Poppins_400Regular', lineHeight: 18 },
     choiceContainer: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.md, marginBottom: Spacing.lg },
     choiceCard: {
         flex: 1, padding: Spacing.md, borderRadius: BorderRadius.lg,
@@ -652,14 +702,12 @@ const s = StyleSheet.create({
     choiceTitle: { fontSize: FontSize.md, fontFamily: 'Poppins_700Bold', color: TEXT, textAlign: 'center', marginBottom: Spacing.xs },
     choiceDesc: { fontSize: FontSize.xs, color: MUTED, textAlign: 'center', fontFamily: 'Poppins_400Regular', lineHeight: 15 },
     activeBadge: { position: 'absolute', top: 8, right: 8 },
-
     infoBox: {
         flexDirection: 'row', gap: Spacing.sm, padding: Spacing.md,
         backgroundColor: 'rgba(255,102,0,0.08)', borderRadius: BorderRadius.md,
         borderWidth: 1, borderColor: 'rgba(255,102,0,0.15)', marginTop: Spacing.xs,
     },
     infoText: { flex: 1, fontSize: FontSize.sm, color: TEXT2, fontFamily: 'Poppins_400Regular', lineHeight: 18 },
-
     importBox: {
         padding: Spacing.lg, backgroundColor: 'rgba(30,201,142,0.08)',
         borderRadius: BorderRadius.md, borderWidth: 1, borderColor: 'rgba(30,201,142,0.15)',
@@ -673,16 +721,6 @@ const s = StyleSheet.create({
         shadowOpacity: 0.25, shadowRadius: 6, elevation: Platform.OS === 'android' ? 0 : 3,
     },
     importBtnText: { color: '#fff', fontSize: FontSize.md, fontFamily: 'Poppins_700Bold' },
-
-    assetRow: {
-        flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md,
-        backgroundColor: CARD, borderRadius: BorderRadius.md, marginBottom: Spacing.sm,
-        borderWidth: 1, borderColor: BORDER,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: Platform.OS === 'android' ? 0 : 1,
-    },
-    assetIconWrap: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-    assetName: { fontSize: FontSize.md, fontFamily: 'Poppins_600SemiBold', color: TEXT },
-    assetMeta: { fontSize: FontSize.xs, color: MUTED, marginTop: 2, fontFamily: 'Poppins_400Regular' },
     addBtn: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
         padding: Spacing.md, borderRadius: BorderRadius.md,
@@ -729,136 +767,47 @@ const s = StyleSheet.create({
     periodChipActive: { backgroundColor: P, borderColor: P },
     periodChipText: { fontSize: FontSize.sm, fontFamily: 'Poppins_700Bold', color: MUTED },
     skipNote: { fontSize: FontSize.xs, color: MUTED, textAlign: 'center', marginTop: Spacing.lg, fontFamily: 'Poppins_400Regular' },
-    yesnoRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.lg },
-    yesnoBtn: {
-        flex: 1, padding: Spacing.lg, borderRadius: BorderRadius.lg,
-        backgroundColor: CARD, borderWidth: 2, borderColor: BORDER,
-        alignItems: 'center', gap: Spacing.sm,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: Platform.OS === 'android' ? 0 : 2,
-    },
-    yesnoBtnText: { fontSize: FontSize.md, fontFamily: 'Poppins_700Bold', color: MUTED },
     commitBox: {
         backgroundColor: '#F9FAFB', borderRadius: BorderRadius.md,
         padding: Spacing.md, marginTop: Spacing.md, borderWidth: 1, borderColor: BORDER,
     },
     checkRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
     checkbox: {
-        width: 22, height: 22, borderRadius: 6, borderWidth: 2,
-        borderColor: BORDER, alignItems: 'center', justifyContent: 'center',
+        width: 24, height: 24, borderRadius: 7, borderWidth: 2,
+        borderColor: BORDER, alignItems: 'center', justifyContent: 'center', marginTop: 1,
     },
     checkLabel: { flex: 1, fontSize: FontSize.sm, color: TEXT2, lineHeight: 18, fontFamily: 'Poppins_400Regular' },
-
-    // ATM card
     atmCard: {
-        borderRadius: 20,
-        padding: Spacing.xl,
-        minHeight: 160,
-        justifyContent: 'space-between',
-        shadowColor: '#1A1040',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.22,
-        shadowRadius: 14,
-        elevation: Platform.OS === 'android' ? 0 : 8,
-        marginBottom: Spacing.md,
+        borderRadius: 20, padding: Spacing.xl, minHeight: 160, justifyContent: 'space-between',
+        shadowColor: '#1A1040', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.22,
+        shadowRadius: 14, elevation: Platform.OS === 'android' ? 0 : 8, marginBottom: Spacing.md,
     },
-    atmCardTop: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: Spacing.md,
-    },
+    atmCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
     chip: {
-        width: 34,
-        height: 26,
-        backgroundColor: 'rgba(255,218,90,0.85)',
-        borderRadius: 5,
-        justifyContent: 'space-evenly',
-        paddingVertical: 6,
-        paddingHorizontal: 4,
+        width: 34, height: 26, backgroundColor: 'rgba(255,218,90,0.85)', borderRadius: 5,
+        justifyContent: 'space-evenly', paddingVertical: 6, paddingHorizontal: 4,
     },
-    chipLine: {
-        height: 1.5,
-        backgroundColor: 'rgba(160,110,0,0.55)',
-        borderRadius: 2,
-    },
+    chipLine: { height: 1.5, backgroundColor: 'rgba(160,110,0,0.55)', borderRadius: 2 },
     atmCardName: {
-        color: 'rgba(255,255,255,0.8)',
-        fontSize: FontSize.xs,
-        fontFamily: 'Poppins_400Regular',
-        letterSpacing: 1.5,
-        textTransform: 'uppercase',
-        marginBottom: 4,
+        color: 'rgba(255,255,255,0.8)', fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular',
+        letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4,
     },
-    atmCardBalance: {
-        fontSize: 28,
-        fontFamily: 'Poppins_700Bold',
-        marginBottom: Spacing.md,
-    },
-
-    // Color picker
-    colorPicker: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: Spacing.sm,
-        marginBottom: Spacing.sm,
-    },
-    colorSwatch: {
-        width: 42,
-        height: 42,
-        borderRadius: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    colorSwatchSelected: {
-        borderWidth: 3,
-        borderColor: '#fff',
-    },
-
-    // Currency picker
+    atmCardBalance: { fontSize: 28, fontFamily: 'Poppins_700Bold', marginBottom: Spacing.md },
+    colorPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.sm },
+    colorSwatch: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+    colorSwatchSelected: { borderWidth: 3, borderColor: '#fff' },
     currencyGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.sm },
-    currencyOption: {
-        width: '31%', padding: Spacing.md, borderRadius: BorderRadius.md,
-        borderWidth: 1, alignItems: 'center', justifyContent: 'center'
-    },
+    currencyOption: { width: '31%', padding: Spacing.md, borderRadius: BorderRadius.md, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
     currencyActive: { borderColor: P },
     currencyCode: { fontSize: FontSize.sm, fontFamily: 'Poppins_700Bold' },
     currencyCodeActive: { color: P },
     currencySymbol: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', marginTop: 1 },
     currencySymbolActive: { color: P },
-
-    // Card preview
-    cardPreview: {
-        borderRadius: 18,
-        padding: Spacing.xl,
-        minHeight: 150,
-        justifyContent: 'space-between',
-        marginVertical: Spacing.md,
-    },
-    previewTop: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: Spacing.sm,
-    },
-    previewName: {
-        color: 'rgba(255,255,255,0.75)',
-        fontSize: FontSize.xs,
-        fontFamily: 'Poppins_400Regular',
-        letterSpacing: 1.5,
-        textTransform: 'uppercase',
-    },
-    previewBalance: {
-        color: '#FFFFFF',
-        fontSize: 24,
-        fontFamily: 'Poppins_700Bold',
-    },
-    previewType: {
-        color: 'rgba(255,255,255,0.5)',
-        fontSize: FontSize.xs,
-        fontFamily: 'Poppins_400Regular',
-        letterSpacing: 0.5,
-    },
-
+    cardPreview: { borderRadius: 18, padding: Spacing.xl, minHeight: 150, justifyContent: 'space-between', marginVertical: Spacing.md },
+    previewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.sm },
+    previewName: { color: 'rgba(255,255,255,0.75)', fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', letterSpacing: 1.5, textTransform: 'uppercase' },
+    previewBalance: { color: '#FFFFFF', fontSize: 24, fontFamily: 'Poppins_700Bold' },
+    previewType: { color: 'rgba(255,255,255,0.5)', fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', letterSpacing: 0.5 },
     nav: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         paddingHorizontal: Spacing.lg, paddingBottom: Platform.OS === 'ios' ? 40 : 24,

@@ -64,6 +64,10 @@ export async function exportToJSON() {
         console.warn('Failed to load some settings from AsyncStorage during export:', e);
     }
 
+    const sanitizedSettings = { ...(data.settings || {}) };
+    delete sanitizedSettings.aiApiKey;
+    delete sanitizedSettings.aiEndpoint;
+
     const exportData = {
         version: '3.0',
         exportDate: new Date().toISOString(),
@@ -75,8 +79,9 @@ export async function exportToJSON() {
             savingsGoals: data.savingsGoals || [],
             chatSessions: data.chatSessions || [],
             vehicles: data.vehicles || [],
+            recurringTransactions: data.recurringTransactions || [],
             settings: {
-                ...data.settings,
+                ...sanitizedSettings,
                 app_theme_mode: appThemeMode,
                 ai_thinking_prefs: thinkingPrefs,
                 active_model_id: activeModelId,
@@ -114,13 +119,14 @@ export async function exportToExcel(options = {}) {
     const baseCurrency = data.settings?.currency || 'USD';
     const exchangeRates = await getOrFetchRates(baseCurrency);
 
-    // --- Generate Summary Dashboard Data ---
-    const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
-    const totalExpense = transactions.filter(t => t.type === 'spending').reduce((sum, t) => sum + Math.abs(t.amount || 0), 0);
+    // --- Generate Summary Dashboard Data (converted to baseCurrency) ---
+    const toBase = (t) => Math.abs(convertCurrency(t.amount || 0, t.currency || baseCurrency, baseCurrency, exchangeRates));
+    const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + toBase(t), 0);
+    const totalExpense = transactions.filter(t => t.type === 'spending').reduce((sum, t) => sum + toBase(t), 0);
 
     const categoryTotals = {};
     transactions.filter(t => t.type === 'spending').forEach(t => {
-        categoryTotals[t.category] = (categoryTotals[t.category] || 0) + Math.abs(t.amount || 0);
+        categoryTotals[t.category] = (categoryTotals[t.category] || 0) + toBase(t);
     });
     const sortedCategories = Object.keys(categoryTotals).sort((a, b) => categoryTotals[b] - categoryTotals[a]);
 
@@ -157,7 +163,7 @@ export async function exportToExcel(options = {}) {
             Currency: t.currency || baseCurrency,
             'Converted Amount': convertCurrency(t.amount, t.currency || baseCurrency, baseCurrency, exchangeRates),
             'Base Currency': baseCurrency,
-            'Exchange Rate': (exchangeRates?.rates && exchangeRates.rates[t.currency || baseCurrency]) ? (1 / exchangeRates.rates[t.currency || baseCurrency]) : 1,
+            'Exchange Rate': convertCurrency(1, t.currency || baseCurrency, baseCurrency, exchangeRates),
             'Created At': t.createdAt || '',
             'Asset Id': t.assetId || '',
             'From Asset Id': t.fromAssetId || '',

@@ -7,7 +7,7 @@ import { format, addDays, subDays, addWeeks, subWeeks, addMonths, subMonths } fr
 import { useApp } from '../../context/AppContext';
 import { formatCurrency } from '../../utils/currencies';
 import { filterTransactionsByPeriod, formatDate, formatTime, getDateRange } from '../../utils/helpers';
-import { getCategoryById } from '../../utils/categories';
+import { getCategoryById, spendingCategories, incomeCategories } from '../../utils/categories';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -76,7 +76,29 @@ export default function Transactions() {
     const [expandedId, setExpandedId] = useState(null);
     const [showDateModal, setShowDateModal] = useState(false);
     const [showSummaryModal, setShowSummaryModal] = useState(null); // 'income' | 'spending' | null
+    const [showFilters, setShowFilters] = useState(false);
+    const [typeFilter, setTypeFilter] = useState('all'); // 'all' | 'income' | 'spending' | 'move'
+    const [categoryFilter, setCategoryFilter] = useState([]);
+    const [amountMin, setAmountMin] = useState('');
+    const [amountMax, setAmountMax] = useState('');
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+
+    const allCategories = useMemo(() => [...spendingCategories, ...incomeCategories], []);
+
+    const activeFilterCount = useMemo(() => {
+        let count = 0;
+        if (typeFilter !== 'all') count++;
+        if (categoryFilter.length > 0) count++;
+        if (amountMin || amountMax) count++;
+        return count;
+    }, [typeFilter, categoryFilter, amountMin, amountMax]);
+
+    const clearAllFilters = () => {
+        setTypeFilter('all');
+        setCategoryFilter([]);
+        setAmountMin('');
+        setAmountMax('');
+    };
 
     const navigate = (direction) => {
         if (period === 'all') return;
@@ -108,6 +130,23 @@ export default function Transactions() {
             });
         }
 
+        // Advanced filters
+        if (typeFilter !== 'all') {
+            periodTransactions = periodTransactions.filter(t => t.type === typeFilter);
+        }
+        if (categoryFilter.length > 0) {
+            periodTransactions = periodTransactions.filter(t => categoryFilter.includes(t.category));
+        }
+        if (amountMin) {
+            const min = parseFloat(amountMin);
+            if (!isNaN(min)) periodTransactions = periodTransactions.filter(t => Math.abs(t.amount) >= min);
+        }
+        if (amountMax) {
+            const max = parseFloat(amountMax);
+            if (!isNaN(max)) periodTransactions = periodTransactions.filter(t => Math.abs(t.amount) <= max);
+        }
+
+
         const sortedTransactions = [...periodTransactions];
         sortedTransactions.sort((a, b) => {
             const dateA = new Date(a?.date).getTime() || 0;
@@ -121,7 +160,7 @@ export default function Transactions() {
         });
 
         return sortedTransactions;
-    }, [transactions, period, refDate, search, sortBy]);
+    }, [transactions, period, refDate, search, sortBy, typeFilter, categoryFilter, amountMin, amountMax]);
 
     const periodLabel = useMemo(() => {
         if (period === 'all') return 'All time';
@@ -242,7 +281,15 @@ export default function Transactions() {
 
             {/* Header */}
             <View style={styles.header}>
-                <Text style={[styles.title, { color: colors.textPrimary }]}>Transaction History</Text>
+                <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={1}>Transaction History</Text>
+                <TouchableOpacity
+                    style={[styles.calendarBtn, { backgroundColor: colors.primaryLight }]}
+                    onPress={() => router.push('/calendar-view')}
+                    activeOpacity={0.75}
+                    accessibilityLabel="Spending Calendar"
+                >
+                    <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+                </TouchableOpacity>
             </View>
 
             {/* Period Tabs */}
@@ -327,7 +374,93 @@ export default function Transactions() {
                         </TouchableOpacity>
                     ) : null}
                 </View>
+                <TouchableOpacity
+                    style={[styles.filterToggle, { backgroundColor: showFilters || activeFilterCount > 0 ? colors.primaryLight : colors.card, borderColor: activeFilterCount > 0 ? colors.primary : colors.border }]}
+                    onPress={() => setShowFilters(!showFilters)}
+                >
+                    <Ionicons name="options-outline" size={18} color={activeFilterCount > 0 ? colors.primary : colors.textSecondary} />
+                    {activeFilterCount > 0 && (
+                        <View style={[styles.filterBadge, { backgroundColor: colors.primary }]}>
+                            <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                        </View>
+                    )}
+                </TouchableOpacity>
             </View>
+
+            {/* Advanced Filters Panel */}
+            {showFilters && (
+                <View style={[styles.filtersPanel, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    {/* Type Filter */}
+                    <View style={styles.filterSection}>
+                        <Text style={[styles.filterSectionTitle, { color: colors.textSecondary }]}>Type</Text>
+                        <View style={styles.filterChipRow}>
+                            {[{ value: 'all', label: 'All' }, { value: 'income', label: 'Income' }, { value: 'spending', label: 'Spending' }, { value: 'move', label: 'Transfer' }].map(opt => (
+                                <TouchableOpacity
+                                    key={opt.value}
+                                    style={[styles.filterChip, { backgroundColor: typeFilter === opt.value ? colors.primaryLight : colors.inputBg, borderColor: typeFilter === opt.value ? colors.primary : colors.border }]}
+                                    onPress={() => setTypeFilter(opt.value)}
+                                >
+                                    <Text style={[styles.filterChipText, { color: typeFilter === opt.value ? colors.primary : colors.textSecondary }]}>{opt.label}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+
+                    {/* Category Filter */}
+                    <View style={styles.filterSection}>
+                        <Text style={[styles.filterSectionTitle, { color: colors.textSecondary }]}>Category</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
+                            {allCategories.map(cat => {
+                                const isSelected = categoryFilter.includes(cat.id);
+                                return (
+                                    <TouchableOpacity
+                                        key={cat.id}
+                                        style={[styles.filterChip, { backgroundColor: isSelected ? `${cat.color}20` : colors.inputBg, borderColor: isSelected ? cat.color : colors.border }]}
+                                        onPress={() => setCategoryFilter(prev => isSelected ? prev.filter(c => c !== cat.id) : [...prev, cat.id])}
+                                    >
+                                        <Ionicons name={cat.icon} size={12} color={isSelected ? cat.color : colors.textMuted} />
+                                        <Text style={[styles.filterChipText, { color: isSelected ? cat.color : colors.textSecondary }]}>{cat.name}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </ScrollView>
+                    </View>
+
+                    {/* Amount Range */}
+                    <View style={styles.filterSection}>
+                        <Text style={[styles.filterSectionTitle, { color: colors.textSecondary }]}>Amount Range</Text>
+                        <View style={styles.amountRangeRow}>
+                            <TextInput
+                                style={[styles.amountInput, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }]}
+                                placeholder="Min"
+                                placeholderTextColor={colors.textMuted}
+                                keyboardType="numeric"
+                                value={amountMin}
+                                onChangeText={setAmountMin}
+                            />
+                            <Text style={[{ color: colors.textMuted, fontFamily: 'Poppins_500Medium' }]}>—</Text>
+                            <TextInput
+                                style={[styles.amountInput, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }]}
+                                placeholder="Max"
+                                placeholderTextColor={colors.textMuted}
+                                keyboardType="numeric"
+                                value={amountMax}
+                                onChangeText={setAmountMax}
+                            />
+                        </View>
+                    </View>
+
+
+
+                    {/* Clear All */}
+                    {activeFilterCount > 0 && (
+                        <TouchableOpacity style={[styles.clearFiltersBtn, { backgroundColor: colors.redLight }]} onPress={clearAllFilters}>
+                            <Ionicons name="close-circle-outline" size={14} color={colors.rose} />
+                            <Text style={[styles.clearFiltersText, { color: colors.rose }]}>Clear All Filters</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            )}
 
             {/* Sort Chips */}
             <View style={styles.sortRow}>
@@ -403,6 +536,7 @@ export default function Transactions() {
                                             {transaction.description || category.name}
                                         </Text>
                                         <Text style={[styles.txMeta, { color: colors.textSecondary }]}>{category.name} · {formatTime(transaction.date)}</Text>
+
                                     </View>
                                     <View style={{ alignItems: 'flex-end' }}>
                                         <Text style={[styles.txAmount, {
@@ -437,6 +571,8 @@ export default function Transactions() {
                                                 ))}
                                             </View>
                                         )}
+
+
                                         <View style={styles.txActions}>
                                             <TouchableOpacity
                                                 style={styles.editBtn}
@@ -551,6 +687,9 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F3F4F6' },
 
     header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
         paddingHorizontal: Spacing.lg,
         paddingTop: 60,
         paddingBottom: Spacing.md,
@@ -559,6 +698,15 @@ const styles = StyleSheet.create({
         fontSize: FontSize.xxl,
         fontFamily: 'Poppins_800ExtraBold',
         color: '#1A1040',
+        flex: 1,
+        marginRight: Spacing.sm,
+    },
+    calendarBtn: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 
     periodTabsWrap: {
@@ -684,6 +832,8 @@ const styles = StyleSheet.create({
     searchRow: {
         paddingHorizontal: Spacing.lg,
         marginBottom: Spacing.sm,
+        flexDirection: 'row',
+        gap: Spacing.sm,
     },
     searchBox: {
         flexDirection: 'row',
@@ -702,6 +852,96 @@ const styles = StyleSheet.create({
         fontFamily: 'Poppins_400Regular',
         color: '#1A1040',
     },
+
+    // Filter toggle button
+    filterToggle: {
+        width: 42,
+        height: 42,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    filterBadge: {
+        position: 'absolute',
+        top: -4,
+        right: -4,
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    filterBadgeText: {
+        color: '#fff',
+        fontSize: 10,
+        fontFamily: 'Poppins_700Bold',
+    },
+
+    // Filters panel
+    filtersPanel: {
+        marginHorizontal: Spacing.lg,
+        marginBottom: Spacing.md,
+        borderRadius: BorderRadius.lg,
+        padding: Spacing.md,
+        borderWidth: 1,
+    },
+    filterSection: {
+        marginBottom: Spacing.md,
+    },
+    filterSectionTitle: {
+        fontSize: FontSize.xs,
+        fontFamily: 'Poppins_600SemiBold',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        marginBottom: 6,
+    },
+    filterChipRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+    },
+    filterChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: BorderRadius.full,
+        borderWidth: 1,
+    },
+    filterChipText: {
+        fontSize: 11,
+        fontFamily: 'Poppins_500Medium',
+    },
+    amountRangeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.sm,
+    },
+    amountInput: {
+        flex: 1,
+        borderWidth: 1,
+        borderRadius: BorderRadius.md,
+        paddingHorizontal: Spacing.md,
+        paddingVertical: 6,
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_400Regular',
+    },
+    clearFiltersBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        paddingVertical: 8,
+        borderRadius: BorderRadius.full,
+        marginTop: 4,
+    },
+    clearFiltersText: {
+        fontSize: FontSize.xs,
+        fontFamily: 'Poppins_600SemiBold',
+    },
+
 
     sortRow: {
         paddingHorizontal: Spacing.lg,

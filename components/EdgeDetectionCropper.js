@@ -65,6 +65,17 @@ const EdgeDetectionCropper = ({
         bottomLeft:  toLocal(initialCorners.bottomLeft),
     }));
 
+    React.useEffect(() => {
+        if (initialCorners && initialCorners.topLeft) {
+            setCorners({
+                topLeft:     toLocal(initialCorners.topLeft),
+                topRight:    toLocal(initialCorners.topRight),
+                bottomRight: toLocal(initialCorners.bottomRight),
+                bottomLeft:  toLocal(initialCorners.bottomLeft),
+            });
+        }
+    }, [initialCorners, toLocal]);
+
     const cornersRef = useRef(corners);
     cornersRef.current = corners;
 

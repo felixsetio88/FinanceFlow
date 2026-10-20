@@ -1,0 +1,2392 @@
+# =====================================================================
+# FINANCEFLOW AUDIT PART 4: State (Context), Constants, Utilities & Native Widgets
+# Total Files: 15
+# Includes React Context providers, formatting utilities, themes, and native widgets
+# =====================================================================
+
+================ FILE: context/AppContext.js ================
+
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useState } from 'react';
+import { Alert, AppState } from 'react-native';
+import * as db from '../services/database';
+import { getOrFetchRates, fetchExchangeRates, convertCurrency } from '../services/exchangeRates';
+import { updateWidgetData } from '../utils/widgetBridge';
+import { processDueRecurringTransactions } from '../services/recurringEngine';
+import { scheduleRecurringConfirmNotification } from '../services/notificationService';
+import { logActivity, logError } from '../services/appLogger';
+
+const AppContext = createContext();
+
+function reportMutationError(action, error) {
+    console.error(`${action} failed:`, error);
+    logError(error, `Mutation Error: ${action}`);
+    Alert.alert('Save Failed', `${action} could not be saved. Please try again.`);
+}
+
+function normalizeSavingHistory(goal) {
+    if (Array.isArray(goal?.savingHistory)) return goal.savingHistory;
+    if (Array.isArray(goal?.savingsHistory)) return goal.savingsHistory;
+    return [];
+}
+
+const initialState = {
+    transactions: [],
+    budgets: [],
+    assets: [],
+    savingsGoals: [],
+    chatSessions: [],
+    vehicles: [],
+    recurringTransactions: [],
+    currency: 'USD',
+    exchangeRates: null,
+    aiApiKey: '',
+    aiEndpoint: '',
+    onboardingCompleted: false,
+    loading: true,
+};
+
+function getLocalDateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function reducer(state, action) {
+    switch (action.type) {
+        case 'LOAD_DATA':
+            return {
+                ...state,
+                transactions: action.payload.transactions,
+                budgets: action.payload.budgets,
+                assets: action.payload.assets,
+                savingsGoals: action.payload.savingsGoals || [],
+                chatSessions: action.payload.chatSessions || [],
+                vehicles: action.payload.vehicles || [],
+                recurringTransactions: action.payload.recurringTransactions || [],
+                currency: action.payload.settings?.currency || 'USD',
+                aiApiKey: action.payload.settings?.aiApiKey || '',
+                aiEndpoint: action.payload.settings?.aiEndpoint || state.aiEndpoint,
+                onboardingCompleted: action.payload.settings?.onboardingCompleted || false,
+                loading: false,
+            };
+        case 'ADD_TRANSACTION':
+            return { ...state, transactions: [action.payload, ...state.transactions] };
+        case 'UPDATE_TRANSACTION':
+            return {
+                ...state,
+                transactions: state.transactions.map(t =>
+                    t.id === action.payload.id ? action.payload : t
+                ),
+            };
+        case 'DELETE_TRANSACTION':
+            return {
+                ...state,
+                transactions: state.transactions.filter(t => t.id !== action.payload),
+            };
+        case 'ADD_BUDGET':
+            return { ...state, budgets: [action.payload, ...state.budgets] };
+        case 'UPDATE_BUDGET':
+            return {
+                ...state,
+                budgets: state.budgets.map(b =>
+                    b.id === action.payload.id ? action.payload : b
+                ),
+            };
+        case 'DELETE_BUDGET':
+            return { ...state, budgets: state.budgets.filter(b => b.id !== action.payload) };
+        case 'ADD_ASSET':
+            return { ...state, assets: [action.payload, ...state.assets] };
+        case 'UPDATE_ASSET':
+            return {
+                ...state,
+                assets: state.assets.map(a =>
+                    a.id === action.payload.id ? action.payload : a
+                ),
+            };
+        case 'DELETE_ASSET':
+            return { ...state, assets: state.assets.filter(a => a.id !== action.payload) };
+        case 'SET_CURRENCY':
+            return { ...state, currency: action.payload };
+        case 'SET_RATES':
+            return { ...state, exchangeRates: action.payload };
+        case 'SET_AI_CONFIG':
+            return { ...state, aiApiKey: action.payload.apiKey, aiEndpoint: action.payload.endpoint };
+        case 'BULK_ADD_TRANSACTIONS':
+            return { ...state, transactions: [...action.payload, ...state.transactions] };
+        case 'ADD_SAVINGS_GOAL':
+            return { ...state, savingsGoals: [action.payload, ...state.savingsGoals] };
+        case 'UPDATE_SAVINGS_GOAL':
+            return { ...state, savingsGoals: state.savingsGoals.map(g => g.id === action.payload.id ? action.payload : g) };
+        case 'DELETE_SAVINGS_GOAL':
+            return { ...state, savingsGoals: state.savingsGoals.filter(g => g.id !== action.payload) };
+        case 'ADD_CHAT_SESSION':
+            return { ...state, chatSessions: [action.payload, ...state.chatSessions] };
+        case 'UPDATE_CHAT_SESSION':
+            return {
+                ...state,
+                chatSessions: state.chatSessions.map(s => s.id === action.payload.id ? { ...s, messages: action.payload.messages, updatedAt: action.payload.updatedAt } : s)
+            };
+        case 'DELETE_CHAT_SESSION':
+            return { ...state, chatSessions: state.chatSessions.filter(s => s.id !== action.payload) };
+        case 'SET_ONBOARDING_COMPLETED':
+            return { ...state, onboardingCompleted: true };
+        case 'ADD_VEHICLE':
+            return { ...state, vehicles: [action.payload, ...state.vehicles] };
+        case 'UPDATE_VEHICLE':
+            return {
+                ...state,
+                vehicles: state.vehicles.map(v => v.id === action.payload.id ? action.payload : v)
+            };
+        case 'DELETE_VEHICLE':
+            return { ...state, vehicles: state.vehicles.filter(v => v.id !== action.payload) };
+        case 'SET_DEFAULT_VEHICLE':
+            return {
+                ...state,
+                vehicles: state.vehicles.map(v => ({ ...v, isDefault: v.id === action.payload ? 1 : 0 }))
+            };
+        case 'ADD_RECURRING':
+            return { ...state, recurringTransactions: [action.payload, ...state.recurringTransactions] };
+        case 'UPDATE_RECURRING':
+            return {
+                ...state,
+                recurringTransactions: state.recurringTransactions.map(r =>
+                    r.id === action.payload.id ? action.payload : r
+                ),
+            };
+        case 'DELETE_RECURRING':
+            return { ...state, recurringTransactions: state.recurringTransactions.filter(r => r.id !== action.payload) };
+        default:
+            return state;
+    }
+}
+
+export function AppProvider({ children }) {
+    const [state, dispatch] = useReducer(reducer, initialState);
+    const [currentDateKey, setCurrentDateKey] = useState(getLocalDateKey());
+
+    useEffect(() => {
+        loadData();
+    }, []);
+
+    useEffect(() => {
+        let midnightTimeoutId = null;
+
+        const scheduleMidnightTick = () => {
+            if (midnightTimeoutId) {
+                clearTimeout(midnightTimeoutId);
+            }
+
+            const now = new Date();
+            const nextMidnight = new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                now.getDate() + 1,
+                0,
+                0,
+                1
+            );
+
+            midnightTimeoutId = setTimeout(() => {
+                setCurrentDateKey(getLocalDateKey(new Date()));
+                scheduleMidnightTick();
+            }, Math.max(1000, nextMidnight.getTime() - now.getTime()));
+        };
+
+        scheduleMidnightTick();
+
+        const appStateSub = AppState.addEventListener('change', (nextState) => {
+            if (nextState === 'active') {
+                setCurrentDateKey(getLocalDateKey(new Date()));
+                scheduleMidnightTick();
+                // Process any recurring transactions that became due while app was in background
+                // We read state via a ref-like pattern — just fire-and-forget here;
+                // the callbacks use the latest dispatch via closure.
+            }
+        });
+
+        return () => {
+            if (midnightTimeoutId) {
+                clearTimeout(midnightTimeoutId);
+            }
+            appStateSub?.remove?.();
+        };
+    }, []);
+
+    const loadData = async () => {
+        try {
+            const data = await db.getAllData();
+            dispatch({ type: 'LOAD_DATA', payload: data });
+            // Fetch exchange rates after loading settings
+            const curr = data.settings?.currency || 'USD';
+            getOrFetchRates(curr).then(rates => {
+                if (rates) dispatch({ type: 'SET_RATES', payload: rates });
+            });
+            // Sync widget data on fresh load
+            updateWidgetData({
+                transactions: data.transactions || [],
+                budgets: data.budgets || [],
+                savingsGoals: data.savingsGoals || [],
+                currency: data.settings?.currency || 'USD',
+            });
+        } catch (e) {
+            console.error('Failed to load data:', e);
+            // On load error, preserve existing state and never reset onboarding status or currency
+            dispatch({
+                type: 'LOAD_DATA',
+                payload: {
+                    transactions: state.transactions || [],
+                    budgets: state.budgets || [],
+                    assets: state.assets || [],
+                    savingsGoals: state.savingsGoals || [],
+                    chatSessions: state.chatSessions || [],
+                    vehicles: state.vehicles || [],
+                    recurringTransactions: state.recurringTransactions || [],
+                    settings: {
+                        currency: state.currency || 'USD',
+                        aiApiKey: state.aiApiKey || '',
+                        aiEndpoint: state.aiEndpoint || '',
+                        onboardingCompleted: true, // Never force onboarding on load error
+                    },
+                },
+            });
+        }
+    };
+
+    const addTransaction = useCallback(async (tx) => {
+        try {
+            const txCurrency = tx.currency || state.currency;
+            const id = await db.addTransaction({ ...tx, currency: txCurrency });
+            const fullTx = { ...tx, id, currency: txCurrency, items: tx.items || [], photos: tx.photos || [], tags: tx.tags || [], splits: tx.splits || [] };
+            dispatch({ type: 'ADD_TRANSACTION', payload: fullTx });
+            logActivity({
+                category: 'transaction',
+                level: 'success',
+                title: 'Transaction Added',
+                details: `${(fullTx.type || 'spending').toUpperCase()}: ${fullTx.amount} ${fullTx.currency} • ${fullTx.category || 'General'}${fullTx.description ? ' • ' + fullTx.description : ''}`,
+            });
+            return id;
+        } catch (error) {
+            reportMutationError('Add transaction', error);
+            throw error;
+        }
+    }, [state.currency]);
+
+    const updateTransaction = useCallback(async (tx) => {
+        try {
+            await db.updateTransaction(tx);
+            dispatch({ type: 'UPDATE_TRANSACTION', payload: tx });
+            logActivity({
+                category: 'transaction',
+                level: 'info',
+                title: 'Transaction Updated',
+                details: `${(tx.type || 'spending').toUpperCase()}: ${tx.amount} ${tx.currency || state.currency} • ${tx.category || 'General'}${tx.description ? ' • ' + tx.description : ''}`,
+            });
+        } catch (error) {
+            reportMutationError('Update transaction', error);
+            throw error;
+        }
+    }, [state.currency]);
+
+    const deleteTransaction = useCallback(async (id) => {
+        try {
+            await db.deleteTransaction(id);
+            dispatch({ type: 'DELETE_TRANSACTION', payload: id });
+            logActivity({
+                category: 'transaction',
+                level: 'warn',
+                title: 'Transaction Deleted',
+                details: `Transaction ID: ${id}`,
+            });
+        } catch (error) {
+            reportMutationError('Delete transaction', error);
+            throw error;
+        }
+    }, []);
+
+    const addBudget = useCallback(async (b) => {
+        try {
+            const id = await db.addBudget({ ...b, category: b.category || 'all', currency: state.currency });
+            dispatch({ type: 'ADD_BUDGET', payload: { ...b, id, category: b.category || 'all', currency: state.currency } });
+            return id;
+        } catch (error) {
+            reportMutationError('Add budget', error);
+            throw error;
+        }
+    }, [state.currency]);
+
+    const updateBudget = useCallback(async (b) => {
+        try {
+            const normalized = { ...b, category: b.category || 'all' };
+            await db.updateBudget(normalized);
+            dispatch({ type: 'UPDATE_BUDGET', payload: normalized });
+        } catch (error) {
+            reportMutationError('Update budget', error);
+            throw error;
+        }
+    }, []);
+
+    const deleteBudget = useCallback(async (id) => {
+        try {
+            await db.deleteBudget(id);
+            dispatch({ type: 'DELETE_BUDGET', payload: id });
+        } catch (error) {
+            reportMutationError('Delete budget', error);
+            throw error;
+        }
+    }, []);
+
+    const addAsset = useCallback(async (a) => {
+        try {
+            const id = await db.addAsset({ ...a, currency: a.currency || state.currency });
+            dispatch({ type: 'ADD_ASSET', payload: { ...a, id, currency: a.currency || state.currency } });
+            logActivity({
+                category: 'asset',
+                level: 'success',
+                title: 'Account Added',
+                details: `${a.name} (${a.type}) • Initial: ${a.balance} ${a.currency || state.currency}`,
+            });
+            return id;
+        } catch (error) {
+            reportMutationError('Add asset', error);
+            throw error;
+        }
+    }, [state.currency]);
+
+    const updateAsset = useCallback(async (a) => {
+        try {
+            await db.updateAsset(a);
+            dispatch({ type: 'UPDATE_ASSET', payload: a });
+            logActivity({
+                category: 'asset',
+                level: 'info',
+                title: 'Account Updated',
+                details: `${a.name} • Balance: ${a.balance} ${a.currency || state.currency}`,
+            });
+        } catch (error) {
+            reportMutationError('Update asset', error);
+            throw error;
+        }
+    }, [state.currency]);
+
+    const deleteAsset = useCallback(async (id) => {
+        try {
+            await db.deleteAsset(id);
+            dispatch({ type: 'DELETE_ASSET', payload: id });
+            logActivity({
+                category: 'asset',
+                level: 'warn',
+                title: 'Account Deleted',
+                details: `Account ID: ${id}`,
+            });
+        } catch (error) {
+            reportMutationError('Delete asset', error);
+            throw error;
+        }
+    }, []);
+
+    const setCurrency = useCallback(async (code) => {
+        try {
+            await db.setSetting('currency', code);
+            dispatch({ type: 'SET_CURRENCY', payload: code });
+            logActivity({
+                category: 'currency',
+                level: 'info',
+                title: 'Base Currency Changed',
+                details: `Primary currency set to ${code}`,
+            });
+            // Refresh rates for the new base currency
+            getOrFetchRates(code).then(rates => {
+                if (rates) dispatch({ type: 'SET_RATES', payload: rates });
+            });
+        } catch (error) {
+            reportMutationError('Update currency', error);
+            throw error;
+        }
+    }, []);
+
+    const refreshExchangeRates = useCallback(async () => {
+        try {
+            const fresh = await fetchExchangeRates(state.currency);
+            if (fresh) {
+                dispatch({ type: 'SET_RATES', payload: fresh });
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error('Failed to refresh rates:', e);
+            return false;
+        }
+    }, [state.currency]);
+
+    const setAiConfig = useCallback(async (apiKey, endpoint) => {
+        try {
+            await db.setSetting('ai_api_key', apiKey);
+            if (endpoint) await db.setSetting('ai_endpoint', endpoint);
+            dispatch({ type: 'SET_AI_CONFIG', payload: { apiKey, endpoint: endpoint || state.aiEndpoint } });
+        } catch (error) {
+            reportMutationError('Update AI settings', error);
+            throw error;
+        }
+    }, [state.aiEndpoint]);
+
+    const bulkAddTransactions = useCallback(async (transactions) => {
+        try {
+            const normalized = transactions.map(t => ({ ...t, currency: t.currency || state.currency }));
+            await db.bulkAddTransactions(normalized);
+            dispatch({ type: 'BULK_ADD_TRANSACTIONS', payload: normalized });
+        } catch (error) {
+            reportMutationError('Import transactions', error);
+            throw error;
+        }
+    }, [state.currency]);
+
+    const addSavingGoal = useCallback(async (goal) => {
+        try {
+            const savingHistory = normalizeSavingHistory(goal);
+            const id = await db.addSavingsGoal({ ...goal, savingHistory, currency: state.currency });
+            dispatch({
+                type: 'ADD_SAVINGS_GOAL',
+                payload: {
+                    ...goal,
+                    id,
+                    currency: state.currency,
+                    currentAmount: goal.currentAmount || 0,
+                    savingHistory,
+                },
+            });
+            return id;
+        } catch (error) {
+            reportMutationError('Add savings goal', error);
+            throw error;
+        }
+    }, [state.currency]);
+
+    const updateSavingGoal = useCallback(async (goal) => {
+        try {
+            const normalized = { ...goal, savingHistory: normalizeSavingHistory(goal) };
+            await db.updateSavingsGoal(normalized);
+            dispatch({ type: 'UPDATE_SAVINGS_GOAL', payload: normalized });
+        } catch (error) {
+            reportMutationError('Update savings goal', error);
+            throw error;
+        }
+    }, []);
+
+    const deleteSavingGoal = useCallback(async (id) => {
+        try {
+            await db.deleteSavingsGoal(id);
+            dispatch({ type: 'DELETE_SAVINGS_GOAL', payload: id });
+        } catch (error) {
+            reportMutationError('Delete savings goal', error);
+            throw error;
+        }
+    }, []);
+
+    const addChatSession = useCallback(async (session) => {
+        try {
+            const id = await db.addChatSession(session);
+            const fullSession = { ...session, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+            dispatch({ type: 'ADD_CHAT_SESSION', payload: fullSession });
+            return id;
+        } catch (error) {
+            reportMutationError('Add chat session', error);
+            throw error;
+        }
+    }, []);
+
+    const updateChatSession = useCallback(async (id, messages) => {
+        try {
+            await db.updateChatSession(id, messages);
+            dispatch({ type: 'UPDATE_CHAT_SESSION', payload: { id, messages, updatedAt: new Date().toISOString() } });
+        } catch (error) {
+            reportMutationError('Update chat session', error);
+            throw error;
+        }
+    }, []);
+
+    const deleteChatSession = useCallback(async (id) => {
+        try {
+            await db.deleteChatSession(id);
+            dispatch({ type: 'DELETE_CHAT_SESSION', payload: id });
+        } catch (error) {
+            reportMutationError('Delete chat session', error);
+            throw error;
+        }
+    }, []);
+
+    const setOnboardingCompleted = useCallback(async () => {
+        try {
+            await db.setSetting('onboarding_completed', 'true');
+            dispatch({ type: 'SET_ONBOARDING_COMPLETED' });
+        } catch (error) {
+            reportMutationError('Update onboarding status', error);
+            throw error;
+        }
+    }, []);
+
+    const addVehicle = useCallback(async (vehicle) => {
+        try {
+            const id = await db.addVehicle({ ...vehicle, currency: state.currency });
+            dispatch({ type: 'ADD_VEHICLE', payload: { ...vehicle, id, currency: state.currency, createdAt: new Date().toISOString() } });
+            return id;
+        } catch (error) {
+            reportMutationError('Add vehicle', error);
+            throw error;
+        }
+    }, [state.currency]);
+
+    const updateVehicle = useCallback(async (vehicle) => {
+        try {
+            await db.updateVehicle(vehicle);
+            dispatch({ type: 'UPDATE_VEHICLE', payload: vehicle });
+        } catch (error) {
+            reportMutationError('Update vehicle', error);
+            throw error;
+        }
+    }, []);
+
+    const deleteVehicle = useCallback(async (id) => {
+        try {
+            await db.deleteVehicle(id);
+            dispatch({ type: 'DELETE_VEHICLE', payload: id });
+        } catch (error) {
+            reportMutationError('Delete vehicle', error);
+            throw error;
+        }
+    }, []);
+
+    const setDefaultVehicle = useCallback(async (id) => {
+        try {
+            await db.setDefaultVehicle(id);
+            dispatch({ type: 'SET_DEFAULT_VEHICLE', payload: id });
+        } catch (err) {
+            console.error('Failed to set default vehicle:', err);
+            throw err;
+        }
+    }, []);
+
+    // ─── Recurring Transactions ───────────────────────────────
+    const addRecurringTransaction = useCallback(async (rt) => {
+        try {
+            const id = await db.addRecurringTransaction(rt);
+            const full = { ...rt, id, createdAt: new Date().toISOString() };
+            dispatch({ type: 'ADD_RECURRING', payload: full });
+            return id;
+        } catch (error) {
+            reportMutationError('Add recurring transaction', error);
+            throw error;
+        }
+    }, []);
+
+    const updateRecurringTransaction = useCallback(async (rt) => {
+        try {
+            await db.updateRecurringTransaction(rt);
+            dispatch({ type: 'UPDATE_RECURRING', payload: rt });
+        } catch (error) {
+            reportMutationError('Update recurring transaction', error);
+            throw error;
+        }
+    }, []);
+
+    const deleteRecurringTransaction = useCallback(async (id) => {
+        try {
+            await db.deleteRecurringTransaction(id);
+            dispatch({ type: 'DELETE_RECURRING', payload: id });
+        } catch (error) {
+            reportMutationError('Delete recurring transaction', error);
+            throw error;
+        }
+    }, []);
+
+    // Computed values (multi-currency aware)
+    const getIncome = useCallback((period, ref) => {
+        const { filterTransactionsByPeriod } = require('../utils/helpers');
+        const filtered = filterTransactionsByPeriod(state.transactions, period, ref);
+        return filtered
+            .filter(t => t.type === 'income')
+            .reduce((s, t) => s + Math.abs(convertCurrency(t.amount, t.currency || state.currency, state.currency, state.exchangeRates)), 0);
+    }, [state.transactions, state.currency, state.exchangeRates]);
+
+    const getSpending = useCallback((period, ref) => {
+        const { filterTransactionsByPeriod } = require('../utils/helpers');
+        const filtered = filterTransactionsByPeriod(state.transactions, period, ref);
+        return filtered
+            .filter(t => t.type === 'spending')
+            .reduce((s, t) => s + Math.abs(convertCurrency(t.amount, t.currency || state.currency, state.currency, state.exchangeRates)), 0);
+    }, [state.transactions, state.currency, state.exchangeRates]);
+
+    // Keep widget data in sync whenever key state slices change
+    useEffect(() => {
+        if (!state.loading) {
+            updateWidgetData({
+                transactions: state.transactions,
+                budgets: state.budgets,
+                savingsGoals: state.savingsGoals,
+                currency: state.currency,
+                exchangeRates: state.exchangeRates,
+            });
+        }
+    }, [state.transactions, state.budgets, state.savingsGoals, state.currency, state.exchangeRates, state.loading]);
+
+    // Process due recurring transactions
+    useEffect(() => {
+        if (state.loading || !state.recurringTransactions?.length) return;
+        processDueRecurringTransactions(
+            addTransaction,
+            state.recurringTransactions,
+            updateRecurringTransaction,
+            scheduleRecurringConfirmNotification,
+            state.assets,
+            updateAsset,
+            state.exchangeRates,
+            state.currency
+        );
+    }, [state.recurringTransactions, state.loading, currentDateKey]);
+
+    const value = {
+        ...state,
+        currentDateKey,
+        addTransaction,
+        updateTransaction,
+        deleteTransaction,
+        addBudget,
+        updateBudget,
+        deleteBudget,
+        addAsset,
+        updateAsset,
+        deleteAsset,
+        setCurrency,
+        refreshExchangeRates,
+        convertCurrency,
+        setAiConfig,
+        bulkAddTransactions,
+        getIncome,
+        getSpending,
+        loadData,
+        addSavingGoal,
+        updateSavingGoal,
+        deleteSavingGoal,
+        addChatSession,
+        updateChatSession,
+        deleteChatSession,
+        setOnboardingCompleted,
+        addVehicle,
+        updateVehicle,
+        deleteVehicle,
+        setDefaultVehicle,
+        addRecurringTransaction,
+        updateRecurringTransaction,
+        deleteRecurringTransaction,
+    };
+
+    return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+}
+
+export function useApp() {
+    const context = useContext(AppContext);
+    if (!context) throw new Error('useApp must be used within AppProvider');
+    return context;
+}
+
+
+================ FILE: context/ThemeContext.js ================
+
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { Appearance } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Colors } from '../constants/theme';
+
+const THEME_STORAGE_KEY = 'app_theme_mode';
+
+const ThemeContext = createContext(null);
+
+export function ThemeProvider({ children }) {
+    const [systemScheme, setSystemScheme] = useState(Appearance.getColorScheme() || 'light');
+    const [themeMode, setThemeModeState] = useState('system'); // 'light' | 'dark' | 'system'
+
+    useEffect(() => {
+        const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+            setSystemScheme(colorScheme || 'light');
+        });
+        return () => subscription.remove();
+    }, []);
+
+    // Load persisted preference on mount
+    useEffect(() => {
+        AsyncStorage.getItem(THEME_STORAGE_KEY).then((saved) => {
+            if (saved === 'light' || saved === 'dark' || saved === 'system') {
+                setThemeModeState(saved);
+            }
+        });
+    }, []);
+
+    const setThemeMode = useCallback(async (mode) => {
+        setThemeModeState(mode);
+        await AsyncStorage.setItem(THEME_STORAGE_KEY, mode);
+    }, []);
+
+    // Resolve the effective color scheme
+    const effectiveScheme =
+        themeMode === 'system' ? (systemScheme || 'light') : themeMode;
+
+    const colors = effectiveScheme === 'dark' ? Colors.dark : Colors.light;
+
+    const value = {
+        themeMode,        // user's preference: 'light' | 'dark' | 'system'
+        setThemeMode,
+        isDark: effectiveScheme === 'dark',
+        colors,           // the resolved color palette
+    };
+
+    return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+export function useTheme() {
+    const ctx = useContext(ThemeContext);
+    if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
+    return ctx;
+}
+
+
+================ FILE: constants/theme.js ================
+
+// Theme constants for FinanceFlow
+// Two complete palettes: light and dark
+
+const lightColors = {
+    // Core backgrounds
+    background: '#F2F3F5',
+    surface: '#FCFCFF',
+    card: 'rgba(255,255,255,0.88)',
+    cardSolid: '#FFFFFF',
+
+    // Text
+    text: '#151A2D',
+    textPrimary: '#151A2D',
+    textSecondary: '#4E566E',
+    textMuted: '#8E95AB',
+
+    // Data accents
+    emerald: '#1EC98E',
+    emeraldDark: '#0FA272',
+    emeraldLight: 'rgba(30,201,142,0.12)',
+    gold: '#E4D84D',
+    goldLight: 'rgba(228,216,77,0.18)',
+    red: '#FF7A87',
+    redLight: 'rgba(255,122,135,0.16)',
+    rose: '#FF7A87',
+    roseLight: 'rgba(255,122,135,0.16)',
+    blue: '#6A6FF8',
+    blueLight: 'rgba(106,111,248,0.14)',
+    primary: '#ff6600',
+    primaryLight: 'rgba(255,102,0,0.15)',
+    secondary: '#0d47a1',
+    secondaryLight: 'rgba(13,71,161,0.15)',
+
+    // Semantic colors
+    income: '#059669',
+    spending: '#dc2626',
+
+    // Borders
+    border: 'rgba(83,96,132,0.14)',
+    borderLight: 'rgba(83,96,132,0.08)',
+
+    // Navigation
+    tabBar: 'rgba(255,255,255,0.95)',
+    tabBarBorder: 'rgba(83,96,132,0.14)',
+    tabInactive: '#8F96AC',
+    tabActive: '#ff6600',
+
+    // Input
+    inputBg: '#FFFFFF',
+    inputBorder: 'rgba(83,96,132,0.16)',
+    inputFocusBorder: '#ff6600',
+
+    // Modal
+    overlay: 'rgba(21,26,45,0.22)',
+    modalBg: '#FDFDFF',
+
+    // Gradient stops for backgrounds
+    gradientStart: '#F7F7F8',
+    gradientMid: '#F2F3F5',
+    gradientEnd: '#ECEEF1',
+
+    // Status bar style
+    statusBar: 'dark',
+};
+
+const darkColors = {
+    // Core backgrounds
+    background: '#111114',
+    surface: '#1A1B22',
+    card: 'rgba(30,31,42,0.92)',
+    cardSolid: '#1E1F2A',
+
+    // Text
+    text: '#EDEEF5',
+    textPrimary: '#EDEEF5',
+    textSecondary: '#9CA3B8',
+    textMuted: '#5C6278',
+
+    // Data accents
+    emerald: '#23D499',
+    emeraldDark: '#0FA272',
+    emeraldLight: 'rgba(35,212,153,0.15)',
+    gold: '#F0E060',
+    goldLight: 'rgba(240,224,96,0.15)',
+    red: '#FF8594',
+    redLight: 'rgba(255,133,148,0.15)',
+    rose: '#FF8594',
+    roseLight: 'rgba(255,133,148,0.15)',
+    blue: '#7A7FFA',
+    blueLight: 'rgba(122,127,250,0.15)',
+    primary: '#ff6600',
+    primaryLight: 'rgba(255,102,0,0.15)',
+    secondary: '#0d47a1',
+    secondaryLight: 'rgba(13,71,161,0.15)',
+
+    // Semantic colors
+    income: '#23D499',
+    spending: '#FF8594',
+
+    // Borders
+    border: 'rgba(255,255,255,0.09)',
+    borderLight: 'rgba(255,255,255,0.05)',
+
+    // Navigation
+    tabBar: 'rgba(18,19,26,0.97)',
+    tabBarBorder: 'rgba(255,255,255,0.08)',
+    tabInactive: '#4A5068',
+    tabActive: '#ff6600',
+
+    // Input
+    inputBg: '#1C1D28',
+    inputBorder: 'rgba(255,255,255,0.10)',
+    inputFocusBorder: '#ff6600',
+
+    // Modal
+    overlay: 'rgba(0,0,0,0.65)',
+    modalBg: '#18191F',
+
+    // Gradient stops for backgrounds
+    gradientStart: '#141418',
+    gradientMid: '#111114',
+    gradientEnd: '#0E0E12',
+
+    // Status bar style
+    statusBar: 'light',
+};
+
+export const Colors = {
+    light: lightColors,
+    dark: darkColors,
+};
+
+export const Spacing = {
+    xs: 4,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 20,
+    xxl: 24,
+    xxxl: 32,
+};
+
+export const FontSize = {
+    xs: 11,
+    sm: 13,
+    md: 15,
+    lg: 17,
+    xl: 19,
+    xxl: 23,
+    xxxl: 29,
+    display: 38,
+};
+
+export const BorderRadius = {
+    sm: 8,
+    md: 14,
+    lg: 18,
+    xl: 20,
+    full: 999,
+};
+
+// Breakpoints for responsive layout
+export const Breakpoints = {
+    phone: 0,
+    tablet: 768,
+    desktop: 1024,
+};
+
+
+================ FILE: utils/categories.js ================
+
+// Category definitions for income and spending
+export const spendingCategories = [
+    { id: 'food', name: 'Food', icon: 'fast-food-outline', color: '#ef4444' },
+    { id: 'transport', name: 'Car', icon: 'car-outline', color: '#f97316' },
+    { id: 'daily_needs', name: 'Daily Needs', icon: 'cart-outline', color: '#eab308' },
+    { id: 'health', name: 'Health', icon: 'medkit-outline', color: '#22c55e' },
+    { id: 'pets', name: 'Pets', icon: 'paw-outline', color: '#a3e635' },
+    { id: 'shopping', name: 'Shopping', icon: 'bag-handle-outline', color: '#ec4899' },
+    { id: 'entertainment', name: 'Entertainment', icon: 'ticket-outline', color: '#8b5cf6' },
+    { id: 'education', name: 'Education', icon: 'library-outline', color: '#06b6d4' },
+    { id: 'bills', name: 'Bills', icon: 'document-text-outline', color: '#64748b' },
+    { id: 'rent', name: 'Rent', icon: 'home-outline', color: '#0ea5e9' },
+    { id: 'beauty', name: 'Beauty', icon: 'color-wand-outline', color: '#f43f5e' },
+    { id: 'gift', name: 'Gift', icon: 'gift-outline', color: '#d946ef' },
+    { id: 'other_spending', name: 'Other', icon: 'grid-outline', color: '#94a3b8' },
+];
+
+export const incomeCategories = [
+    { id: 'salary', name: 'Salary', icon: 'cash-outline', color: '#10b981' },
+    { id: 'freelance', name: 'Freelance', icon: 'laptop-outline', color: '#3b82f6' },
+    { id: 'investment', name: 'Investment', icon: 'trending-up-outline', color: '#8b5cf6' },
+    { id: 'gift_income', name: 'Gift', icon: 'gift-outline', color: '#f59e0b' },
+    { id: 'refund', name: 'Refund', icon: 'refresh-outline', color: '#06b6d4' },
+    { id: 'other_income', name: 'Other', icon: 'grid-outline', color: '#94a3b8' },
+];
+
+export const accountTypes = [
+    { id: 'bank', name: 'Bank Account', icon: 'business' },
+    { id: 'cash', name: 'Cash', icon: 'wallet' },
+    { id: 'paypal', name: 'PayPal', icon: 'logo-paypal' },
+    { id: 'ewallet', name: 'E-Wallet', icon: 'phone-portrait' },
+    { id: 'crypto', name: 'Crypto', icon: 'logo-bitcoin' },
+    { id: 'other_account', name: 'Other', icon: 'grid' },
+];
+
+export function getCategoryById(id) {
+    if (!id) return { id: 'unknown', name: 'Unknown', icon: 'help-circle-outline', color: '#94a3b8' };
+
+    // 1. Exact match on ID
+    const exact = spendingCategories.find(c => c.id === id) || incomeCategories.find(c => c.id === id);
+    if (exact) return exact;
+
+    const lower = String(id).toLowerCase().trim();
+
+    // 2. Specific aliases: 'car' / 'transport' / 'vehicle' -> transport ('Car')
+    if (lower === 'transport' || lower === 'car' || lower === 'vehicle') {
+        return spendingCategories.find(c => c.id === 'transport') || { id: 'transport', name: 'Car', icon: 'car-outline', color: '#f97316' };
+    }
+
+    // 3. Case-insensitive ID match
+    const byIdLower = spendingCategories.find(c => c.id.toLowerCase() === lower) ||
+                      incomeCategories.find(c => c.id.toLowerCase() === lower);
+    if (byIdLower) return byIdLower;
+
+    // 4. Match by name (e.g. 'Food', 'Car', 'Daily Needs')
+    const byName = spendingCategories.find(c => c.name.toLowerCase() === lower) ||
+                   incomeCategories.find(c => c.name.toLowerCase() === lower);
+    if (byName) return byName;
+
+    return { id: 'unknown', name: 'Unknown', icon: 'help-circle-outline', color: '#94a3b8' };
+}
+
+export function normalizeCategoryId(id) {
+    if (!id) return 'other_spending';
+    const cat = getCategoryById(id);
+    return cat.id !== 'unknown' ? cat.id : String(id).toLowerCase().trim();
+}
+
+export function getAccountTypeById(id) {
+    return accountTypes.find(a => a.id === id) || accountTypes[5];
+}
+
+// Auto-categorization keywords for AI and PDF parsing
+const categoryKeywords = {
+    food: ['food', 'restaurant', 'cafe', 'coffee', 'pizza', 'burger', 'sushi', 'noodle', 'rice', 'chicken', 'bread', 'milk', 'snack', 'drink', 'tea', 'juice', 'mcdonald', 'kfc', 'starbucks', 'grab food', 'gofood', 'bakery', 'makan', 'nasi', 'ayam', 'mie', 'martabak'],
+    transport: ['uber', 'grab', 'gojek', 'taxi', 'bus', 'train', 'fuel', 'gas', 'petrol', 'parking', 'toll', 'mrt', 'lrt', 'bensin', 'parkir', 'maintenance', 'service', 'refuel', 'ev charge', 'charging', 'bengkel', 'servis'],
+    daily_needs: ['grocery', 'supermarket', 'indomaret', 'alfamart', 'soap', 'shampoo', 'tissue', 'detergent', 'toothpaste'],
+    health: ['pharmacy', 'hospital', 'doctor', 'medicine', 'clinic', 'apotek', 'obat', 'vitamin'],
+    shopping: ['mall', 'store', 'amazon', 'shopee', 'tokopedia', 'lazada', 'uniqlo', 'zara', 'h&m', 'clothing', 'shoes', 'iphone', 'ipad', 'smartphone', 'gadget', 'laptop', 'electronics'],
+    entertainment: ['movie', 'cinema', 'game', 'netflix', 'spotify', 'youtube', 'concert', 'bioskop'],
+    education: ['school', 'university', 'course', 'book', 'tuition', 'udemy', 'coursera', 'buku', 'sekolah'],
+    bills: ['electric', 'water', 'internet', 'phone', 'pln', 'pdam', 'telkom', 'indihome', 'listrik', 'air'],
+    rent: ['rent', 'lease', 'sewa', 'kos', 'kontrakan', 'apartment'],
+    beauty: ['salon', 'spa', 'cosmetic', 'skincare', 'makeup'],
+    gift: ['gift', 'present', 'donation', 'charity', 'kado', 'sumbangan'],
+    pets: ['pet', 'vet', 'dog', 'cat', 'food pet', 'hewan'],
+};
+
+export function autoCategorize(text) {
+    const lower = (text || '').toLowerCase();
+    for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        if (keywords.some(kw => lower.includes(kw))) {
+            return category;
+        }
+    }
+    return 'other_spending';
+}
+
+
+================ FILE: utils/currencies.js ================
+
+// Multi-currency support
+export const currencies = [
+    { code: 'USD', symbol: '$', name: 'US Dollar', locale: 'en-US', decimals: 2 },
+    { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah', locale: 'id-ID', decimals: 0 },
+    { code: 'MYR', symbol: 'RM', name: 'Malaysian Ringgit', locale: 'ms-MY', decimals: 2 },
+    { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar', locale: 'en-SG', decimals: 2 },
+    { code: 'EUR', symbol: '€', name: 'Euro', locale: 'de-DE', decimals: 2 },
+    { code: 'AUD', symbol: 'A$', name: 'Australian Dollar', locale: 'en-AU', decimals: 2 },
+    { code: 'GBP', symbol: '£', name: 'British Pound', locale: 'en-GB', decimals: 2 },
+    { code: 'JPY', symbol: '¥', name: 'Japanese Yen', locale: 'ja-JP', decimals: 0 },
+    { code: 'CNY', symbol: '¥', name: 'Chinese Yuan', locale: 'zh-CN', decimals: 2 },
+    { code: 'THB', symbol: '฿', name: 'Thai Baht', locale: 'th-TH', decimals: 2 },
+    { code: 'KRW', symbol: '₩', name: 'South Korean Won', locale: 'ko-KR', decimals: 0 },
+    { code: 'INR', symbol: '₹', name: 'Indian Rupee', locale: 'en-IN', decimals: 2 },
+    { code: 'PHP', symbol: '₱', name: 'Philippine Peso', locale: 'en-PH', decimals: 2 },
+    { code: 'VND', symbol: '₫', name: 'Vietnamese Dong', locale: 'vi-VN', decimals: 0 },
+];
+
+export function getCurrency(code) {
+    return currencies.find(c => c.code === code) || currencies[0];
+}
+
+export function roundCurrency(amount, currencyCode = 'USD') {
+    const num = Number(amount);
+    if (!Number.isFinite(num)) return 0;
+    const curr = getCurrency(currencyCode);
+    const factor = curr.decimals === 0 ? 1 : Math.pow(10, curr.decimals);
+    return Math.round((num + Number.EPSILON) * factor) / factor;
+}
+
+export function getTopCurrencies(defaultCode, selectedCode = null) {
+    const popular = ['USD', 'IDR', 'EUR', 'GBP', 'JPY', 'AUD', 'SGD'];
+    const defaultCur = getCurrency(defaultCode);
+    const top = [defaultCur];
+
+    if (selectedCode && selectedCode !== defaultCur.code) {
+        const selCur = getCurrency(selectedCode);
+        if (selCur) top.push(selCur);
+    }
+
+    for (const code of popular) {
+        if (top.length >= 5) break;
+        if (!top.some(c => c.code === code)) {
+            const cur = getCurrency(code);
+            if (cur) top.push(cur);
+        }
+    }
+    return top;
+}
+
+export function formatCurrency(amount, currencyCode = 'USD') {
+    const curr = getCurrency(currencyCode);
+    const safeAmount = Number.isFinite(Number(amount)) ? Number(amount) : 0;
+    try {
+        return new Intl.NumberFormat(curr.locale, {
+            style: 'currency',
+            currency: curr.code,
+            minimumFractionDigits: curr.decimals,
+            maximumFractionDigits: curr.decimals,
+        }).format(safeAmount);
+    } catch {
+        const formatted = safeAmount.toFixed(curr.decimals);
+        return `${curr.symbol}${formatted}`;
+    }
+}
+
+export function parseCurrencyAmount(str, currencyCode = 'USD') {
+    if (typeof str === 'number') return Number.isFinite(str) ? str : 0;
+    if (!str) return 0;
+
+    let clean = String(str).trim().replace(/[^0-9.,-]/g, '');
+    if (!clean) return 0;
+
+    const commaCount = (clean.match(/,/g) || []).length;
+    const dotCount = (clean.match(/\./g) || []).length;
+
+    if (commaCount > 0 && dotCount > 0) {
+        if (clean.lastIndexOf(',') > clean.lastIndexOf('.')) {
+            // European/Indonesian format: 1.250.000,50 -> 1250000.50
+            clean = clean.replace(/\./g, '').replace(',', '.');
+        } else {
+            // US/UK format: 1,250,000.50 -> 1250000.50
+            clean = clean.replace(/,/g, '');
+        }
+    } else if (commaCount > 0) {
+        // Only commas present
+        if (commaCount > 1) {
+            // Multiple commas = thousands separators: 1,250,000 -> 1250000
+            clean = clean.replace(/,/g, '');
+        } else {
+            const parts = clean.split(',');
+            // If 3 digits after comma and currency has 0 decimals (or integer >= 1), treat as thousands if 1,000
+            const curr = getCurrency(currencyCode);
+            if (parts[1].length === 3 && curr.decimals === 0) {
+                clean = clean.replace(/,/g, '');
+            } else if (parts[1].length <= 2) {
+                // Decimal comma: 12,50 -> 12.50
+                clean = clean.replace(',', '.');
+            } else {
+                clean = clean.replace(/,/g, '');
+            }
+        }
+    } else if (dotCount > 1) {
+        // Multiple dots = thousands separators (e.g. Indonesian 1.500.000 -> 1500000)
+        clean = clean.replace(/\./g, '');
+    } else if (dotCount === 1) {
+        const parts = clean.split('.');
+        const curr = getCurrency(currencyCode);
+        // In 0-decimal currencies like IDR/JPY, "75.000" with 3 trailing digits is 75000
+        if (curr.decimals === 0 && parts[1].length === 3 && parts[0].length >= 1) {
+            clean = clean.replace('.', '');
+        }
+    }
+
+    const val = parseFloat(clean);
+    return Number.isFinite(val) ? val : 0;
+}
+
+
+================ FILE: utils/helpers.js ================
+
+import { format, startOfDay, startOfWeek, startOfMonth, endOfDay, endOfWeek, endOfMonth, isWithinInterval, parseISO, subDays, subWeeks, subMonths } from 'date-fns';
+import { normalizeCategoryId } from './categories';
+
+export function formatDate(date) {
+    return format(new Date(date), 'MMM dd, yyyy');
+}
+
+export function formatDateShort(date) {
+    return format(new Date(date), 'MMM dd');
+}
+
+export function formatTime(date) {
+    return format(new Date(date), 'hh:mm a');
+}
+
+export function formatDateTime(date) {
+    return format(new Date(date), 'MMM dd, yyyy · hh:mm a');
+}
+
+export function getDateRange(period, referenceDate = new Date(), cycleStartDay = 1) {
+    const ref = new Date(referenceDate);
+    const wrap = (start, end) => ({ start, end, startDate: start, endDate: end });
+    switch (period) {
+        case 'all':
+            return wrap(new Date(0), new Date(8640000000000000));
+        case 'daily':
+            return wrap(startOfDay(ref), endOfDay(ref));
+        case 'weekly':
+            return wrap(startOfWeek(ref, { weekStartsOn: 1 }), endOfWeek(ref, { weekStartsOn: 1 }));
+        case 'monthly': {
+            const targetDay = Math.max(1, Math.min(31, parseInt(cycleStartDay, 10) || 1));
+            if (targetDay === 1) {
+                return wrap(startOfMonth(ref), endOfMonth(ref));
+            }
+            // Clamped salary cycle: e.g. 31st automatically clamps to 28/29th in Feb, 30th in 30-day months
+            const year = ref.getFullYear();
+            const month = ref.getMonth(); // 0-indexed
+
+            const getClampedDate = (y, m, day) => {
+                const daysInMonth = new Date(y, m + 1, 0).getDate();
+                const actualDay = Math.min(day, daysInMonth);
+                return new Date(y, m, actualDay, 0, 0, 0, 0);
+            };
+
+            const thisMonthStart = getClampedDate(year, month, targetDay);
+
+            let cycleStart, cycleEnd;
+            if (ref >= thisMonthStart) {
+                cycleStart = thisMonthStart;
+                const nextMonthStart = getClampedDate(year, month + 1, targetDay);
+                cycleEnd = new Date(nextMonthStart.getTime() - 1);
+            } else {
+                cycleStart = getClampedDate(year, month - 1, targetDay);
+                cycleEnd = new Date(thisMonthStart.getTime() - 1);
+            }
+            return wrap(cycleStart, cycleEnd);
+        }
+        default:
+            return wrap(startOfDay(ref), endOfDay(ref));
+    }
+}
+
+export function getPreviousDateRange(period, referenceDate = new Date()) {
+    const ref = new Date(referenceDate);
+    switch (period) {
+        case 'all':
+            return getDateRange('all', ref);
+        case 'daily':
+            return getDateRange('daily', subDays(ref, 1));
+        case 'weekly':
+            return getDateRange('weekly', subWeeks(ref, 1));
+        case 'monthly':
+            return getDateRange('monthly', subMonths(ref, 1));
+        default:
+            return getDateRange('daily', subDays(ref, 1));
+    }
+}
+
+export function filterTransactionsByPeriod(transactions, period, referenceDate) {
+    if (period === 'all') {
+        return Array.isArray(transactions) ? [...transactions] : [];
+    }
+    const { start, end } = getDateRange(period, referenceDate);
+    return transactions.filter(t => {
+        const d = new Date(t.date);
+        return isWithinInterval(d, { start, end });
+    });
+}
+
+export function groupByCategory(transactions, getConvertedAmount = null) {
+    const groups = {};
+    transactions.forEach(t => {
+        const splits = Array.isArray(t.splits) && t.splits.length > 0 ? t.splits : null;
+
+        if (splits) {
+            // Distribute each split to its respective category
+            splits.forEach(split => {
+                const rawCat = split.category || t.category || 'other_spending';
+                const cat = normalizeCategoryId(rawCat);
+                if (!groups[cat]) groups[cat] = { total: 0, count: 0, transactions: [] };
+                const amount = Math.abs(split.amount || 0);
+                groups[cat].total += amount;
+                groups[cat].count += 1;
+                groups[cat].transactions.push(t);
+            });
+        } else {
+            const rawCat = t.category || 'other_spending';
+            const cat = normalizeCategoryId(rawCat);
+            if (!groups[cat]) groups[cat] = { total: 0, count: 0, transactions: [] };
+            const amount = getConvertedAmount ? Math.abs(getConvertedAmount(t)) : Math.abs(t.amount || 0);
+            groups[cat].total += amount;
+            groups[cat].count += 1;
+            groups[cat].transactions.push(t);
+        }
+    });
+    return groups;
+}
+
+export function groupByDate(transactions) {
+    const groups = {};
+    transactions.forEach(t => {
+        const key = format(new Date(t.date), 'yyyy-MM-dd');
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(t);
+    });
+    return groups;
+}
+
+export function calculateBudgetUsage(transactions, budget, referenceDate = new Date(), getConvertedAmount = null) {
+    const { start, end } = getDateRange(budget.period, referenceDate, budget.cycleStartDay || 1);
+    const periodTransactions = transactions.filter(t => {
+        if (t.type !== 'spending') return false;
+        if (budget.category && budget.category !== 'all' && t.category !== budget.category) return false;
+        const d = new Date(t.date);
+        return isWithinInterval(d, { start, end });
+    });
+    const spent = periodTransactions.reduce((sum, t) => {
+        const amt = getConvertedAmount ? Math.abs(getConvertedAmount(t)) : Math.abs(t.amount || 0);
+        return sum + amt;
+    }, 0);
+    const limit = budget.amount || 0;
+    const remaining = limit - spent;
+    const percentage = limit > 0 ? (spent / limit) * 100 : 0;
+    return { spent, limit, remaining, percentage, isOver: spent > limit };
+}
+
+let _idSeq = 0;
+
+export function generateId() {
+    _idSeq = (_idSeq + 1) % 1679616;
+    return Date.now().toString(36) + _idSeq.toString(36).padStart(4, '0') + Math.random().toString(36).slice(2, 9);
+}
+
+/**
+ * Given a recurrence frequency and date, returns the next ISO date string.
+ * Supports both (frequency, fromDate) and (fromDate, frequency) orderings.
+ * @param {'daily'|'weekly'|'biweekly'|'monthly'|'yearly'|Date|string} arg1
+ * @param {'daily'|'weekly'|'biweekly'|'monthly'|'yearly'|Date|string} arg2
+ * @returns {string} ISO date string
+ */
+export function getNextDueDate(arg1, arg2) {
+    const validFrequencies = ['daily', 'weekly', 'biweekly', 'monthly', 'yearly'];
+    let frequency = 'monthly';
+    let fromDate = new Date();
+
+    if (typeof arg1 === 'string' && validFrequencies.includes(arg1.toLowerCase())) {
+        frequency = arg1.toLowerCase();
+        fromDate = arg2;
+    } else if (typeof arg2 === 'string' && validFrequencies.includes(arg2.toLowerCase())) {
+        frequency = arg2.toLowerCase();
+        fromDate = arg1;
+    } else if (typeof arg1 === 'string') {
+        frequency = arg1;
+        fromDate = arg2;
+    }
+
+    let d = new Date(fromDate);
+    if (Number.isNaN(d.getTime())) {
+        d = new Date();
+    }
+
+    switch (frequency) {
+        case 'daily':    d.setDate(d.getDate() + 1);    break;
+        case 'weekly':   d.setDate(d.getDate() + 7);    break;
+        case 'biweekly': d.setDate(d.getDate() + 14);   break;
+        case 'monthly':  d.setMonth(d.getMonth() + 1);  break;
+        case 'yearly':   d.setFullYear(d.getFullYear() + 1); break;
+        default:         d.setDate(d.getDate() + 1);    break;
+    }
+    return d.toISOString();
+}
+
+/**
+ * Resolves an asset identifier or account name/reference against a list of assets.
+ * Matches exact ID, case-insensitive ID, exact name, noise-stripped name, or substring.
+ * @param {string|object} input - Asset ID or account name (e.g. 'ms1wzpfz000o3fr8jch', 'BPR KITA', 'BPR kita account')
+ * @param {Array} assets - Array of asset objects from context or database
+ * @returns {object|null} - The matched asset object or null if not found
+ */
+export function findMatchingAsset(input, assets) {
+    if (!input || !Array.isArray(assets) || assets.length === 0) return null;
+    const raw = typeof input === 'object' ? (input.id || input.name || '') : String(input);
+    const clean = raw.trim();
+    if (!clean) return null;
+
+    // 1. Direct ID match
+    const byId = assets.find(a => a.id === clean);
+    if (byId) return byId;
+
+    // 2. Case-insensitive ID match
+    const byIdCi = assets.find(a => a.id && a.id.toLowerCase() === clean.toLowerCase());
+    if (byIdCi) return byIdCi;
+
+    // 3. Exact Name match (case-insensitive)
+    const cleanLower = clean.toLowerCase();
+    const byName = assets.find(a => a.name && a.name.toLowerCase() === cleanLower);
+    if (byName) return byName;
+
+    // 4. Strip common noise words: account, rekening, bank, wallet, tabungan, kartu, card, acc
+    const stripNoise = (str) => str.replace(/\b(account|rekening|bank|wallet|tabungan|kartu|card|acc)\b/gi, '').trim().toLowerCase();
+    const cleanStripped = stripNoise(clean);
+    if (cleanStripped) {
+        const byStrippedName = assets.find(a => {
+            const aStripped = stripNoise(a.name || '');
+            return aStripped === cleanStripped;
+        });
+        if (byStrippedName) return byStrippedName;
+    }
+
+    // 5. Contains match (longest name match takes precedence)
+    const candidates = assets
+        .filter(a => {
+            const aNameLower = (a.name || '').toLowerCase();
+            const aStripped = stripNoise(a.name || '');
+            return (
+                (aNameLower && cleanLower.includes(aNameLower)) ||
+                (aStripped && cleanStripped && cleanStripped.includes(aStripped)) ||
+                (aNameLower && aNameLower.includes(cleanLower))
+            );
+        })
+        .sort((a, b) => (b.name || '').length - (a.name || '').length);
+
+    if (candidates.length > 0) return candidates[0];
+
+    return null;
+}
+
+
+
+================ FILE: utils/pickerStore.js ================
+
+// Simple reactive store to pass selection results back from pickers (category, account) to add-transaction
+const listeners = new Set();
+
+export const pickerStore = {
+    setSelection(key, value) {
+        listeners.forEach(fn => {
+            try {
+                fn(key, value);
+            } catch (err) {
+                console.error('[pickerStore error]', err);
+            }
+        });
+    },
+    subscribe(callback) {
+        listeners.add(callback);
+        return () => listeners.delete(callback);
+    },
+};
+
+
+================ FILE: utils/recommendations.js ================
+
+import { getCategoryById } from './categories';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function normalizeText(value) {
+    return (value || '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function toDisplayDescription(description, categoryName) {
+    const cleaned = (description || '').replace(/\s+/g, ' ').trim();
+    if (!cleaned) return categoryName;
+    return cleaned.slice(0, 36);
+}
+
+function getHourDelta(a, b) {
+    const delta = Math.abs(a - b);
+    return Math.min(delta, 24 - delta);
+}
+
+function monthlyDecay(daysOld) {
+    const monthsOld = Math.floor(Math.max(0, daysOld) / 30);
+    return Math.pow(0.92, monthsOld);
+}
+
+function scoreTransactionPattern(txDate, currentDate) {
+    const txHour = txDate.getHours();
+    const currentHour = currentDate.getHours();
+    const txDay = txDate.getDate();
+    const currentDay = currentDate.getDate();
+    const txWeekday = txDate.getDay();
+    const currentWeekday = currentDate.getDay();
+
+    let score = 1;
+
+    const hourDelta = getHourDelta(txHour, currentHour);
+    if (hourDelta === 0) score += 2.5;
+    else if (hourDelta === 1) score += 1.5;
+    else if (hourDelta === 2) score += 0.75;
+
+    if (txDay === currentDay) score += 2.5;
+
+    const startOfMonthPattern = currentDay <= 3 && txDay <= 3;
+    if (startOfMonthPattern) score += 3.5;
+
+    if (txWeekday === currentWeekday) score += 0.75;
+
+    const daysOld = Math.floor((currentDate.getTime() - txDate.getTime()) / DAY_MS);
+    return score * monthlyDecay(daysOld);
+}
+
+function reasonFromSignals(signals, currentDate) {
+    if (currentDate.getDate() <= 3 && signals.startOfMonth >= 2) {
+        return 'Often added at beginning of month';
+    }
+    if (signals.hour >= 2) {
+        const hour = String(currentDate.getHours()).padStart(2, '0');
+        return `Often around ${hour}:00`;
+    }
+    if (signals.dayOfMonth >= 2) {
+        return `Often around day ${currentDate.getDate()}`;
+    }
+    if (signals.weekday >= 2) {
+        const weekday = currentDate.toLocaleDateString(undefined, { weekday: 'long' });
+        return `Often on ${weekday}`;
+    }
+    return 'Frequently used pattern';
+}
+
+export function getTransactionRecommendations({
+    transactions = [],
+    type = 'spending',
+    selectedDate = new Date(),
+    limit = 4,
+}) {
+    const currentDate = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+    if (Number.isNaN(currentDate.getTime())) return [];
+
+    const currentHour = currentDate.getHours();
+    const currentDay = currentDate.getDate();
+    const currentWeekday = currentDate.getDay();
+    const atStartOfMonth = currentDay <= 3;
+
+    const grouped = new Map();
+
+    transactions
+        .filter(tx => tx && tx.type === type && tx.type !== 'move' && tx.category)
+        .forEach(tx => {
+            const txDate = new Date(tx.date);
+            if (Number.isNaN(txDate.getTime())) return;
+
+            const categoryMeta = getCategoryById(tx.category);
+            const description = toDisplayDescription(tx.description, categoryMeta.name);
+            const key = `${tx.category}|${normalizeText(description)}`;
+
+            const item = grouped.get(key) || {
+                key,
+                categoryId: tx.category,
+                categoryName: categoryMeta.name,
+                description,
+                count: 0,
+                score: 0,
+                signals: { hour: 0, dayOfMonth: 0, startOfMonth: 0, weekday: 0 },
+            };
+
+            const weightedScore = scoreTransactionPattern(txDate, currentDate);
+            item.count += 1;
+            item.score += weightedScore;
+
+            const hourDelta = getHourDelta(txDate.getHours(), currentHour);
+            if (hourDelta <= 1) item.signals.hour += 1;
+            if (txDate.getDate() === currentDay) item.signals.dayOfMonth += 1;
+            if (atStartOfMonth && txDate.getDate() <= 3) item.signals.startOfMonth += 1;
+            if (txDate.getDay() === currentWeekday) item.signals.weekday += 1;
+
+            grouped.set(key, item);
+        });
+
+    return [...grouped.values()]
+        .filter(item => item.count >= 2 || item.score >= 5)
+        .sort((a, b) => (b.score - a.score) || (b.count - a.count))
+        .slice(0, limit)
+        .map(item => ({
+            id: item.key,
+            categoryId: item.categoryId,
+            categoryName: item.categoryName,
+            description: item.description,
+            label: item.description !== item.categoryName
+                ? `${item.description} (${item.categoryName})`
+                : item.categoryName,
+            reason: reasonFromSignals(item.signals, currentDate),
+        }));
+}
+
+================ FILE: utils/savings.js ================
+
+import {
+    differenceInCalendarDays,
+    differenceInCalendarMonths,
+    endOfDay,
+    endOfMonth,
+    endOfWeek,
+    isWithinInterval,
+    startOfDay,
+    startOfMonth,
+    startOfWeek,
+} from 'date-fns';
+
+function toDate(value) {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return new Date(`${value}T00:00:00`);
+    }
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function normalizeSavingHistory(goal) {
+    return Array.isArray(goal?.savingHistory) ? goal.savingHistory : [];
+}
+
+export function getSavingsPlan(goalLike) {
+    const targetAmount = parseFloat(goalLike?.targetAmount) || 0;
+    const currentAmount = parseFloat(goalLike?.currentAmount) || 0;
+    const commitment = goalLike?.commitment;
+    const startDate = toDate(goalLike?.startDate);
+    const endDate = toDate(goalLike?.endDate);
+
+    if (!commitment || !startDate || !endDate || targetAmount <= 0) return null;
+
+    const daySpan = differenceInCalendarDays(endDate, startDate);
+    if (daySpan <= 0) return null;
+
+    let periods = daySpan;
+    if (commitment === 'weekly') {
+        periods = Math.max(1, Math.ceil(daySpan / 7));
+    } else if (commitment === 'monthly') {
+        const monthSpan = differenceInCalendarMonths(endDate, startDate);
+        periods = Math.max(1, monthSpan || Math.ceil(daySpan / 30));
+    } else if (commitment !== 'daily') {
+        return null;
+    }
+
+    const remainingAmount = Math.max(0, targetAmount - currentAmount);
+    const amountPerPeriod = periods > 0 ? remainingAmount / periods : remainingAmount;
+
+    return {
+        commitment,
+        periods,
+        daySpan,
+        remainingAmount,
+        amountPerPeriod,
+    };
+}
+
+function hasSavingInCurrentPeriod(goal, now) {
+    const commitment = goal.commitment;
+    const history = normalizeSavingHistory(goal);
+
+    let start = startOfDay(now);
+    let end = endOfDay(now);
+
+    if (commitment === 'weekly') {
+        start = startOfWeek(now, { weekStartsOn: 1 });
+        end = endOfWeek(now, { weekStartsOn: 1 });
+    } else if (commitment === 'monthly') {
+        start = startOfMonth(now);
+        end = endOfMonth(now);
+    }
+
+    return history.some(entry => {
+        const date = toDate(entry?.date || entry?.createdAt);
+        return date ? isWithinInterval(date, { start, end }) : false;
+    });
+}
+
+export function getSavingReminderRecommendations(goals = [], nowInput = new Date()) {
+    const now = toDate(nowInput) || new Date();
+
+    return goals
+        .filter(goal => goal && !goal.isCompleted && goal.notifyEnabled && ['daily', 'weekly', 'monthly'].includes(goal.commitment))
+        .filter(goal => {
+            const activeFrom = toDate(goal.startDate) || toDate(goal.createdAt) || now;
+            return now >= activeFrom;
+        })
+        .filter(goal => !hasSavingInCurrentPeriod(goal, now))
+        .map(goal => {
+            const periodWord = goal.commitment === 'daily' ? 'day' : goal.commitment === 'weekly' ? 'week' : 'month';
+            return {
+                goalId: goal.id,
+                title: goal.title,
+                commitment: goal.commitment,
+                message: `No ${goal.commitment} saving added this ${periodWord}.`,
+            };
+        });
+}
+
+
+================ FILE: utils/widgetBridge.js ================
+
+import { Platform, NativeModules } from 'react-native';
+import { convertCurrency } from '../services/exchangeRates';
+
+export function computeDailyAllowance(transactions, budgets, currency, exchangeRates = null) {
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+    const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+
+    const safeBudgets = Array.isArray(budgets) ? budgets : [];
+    const activeBudget = safeBudgets.find(b => (b.category || 'all') === 'all') || safeBudgets[0] || null;
+
+    let dailyBudget = 0;
+    if (activeBudget) {
+        const rawBudgetAmt = Number(activeBudget.amount ?? activeBudget.limit ?? 0);
+        const budgetAmt = convertCurrency(rawBudgetAmt, activeBudget.currency || currency, currency, exchangeRates);
+        if (activeBudget.period === 'daily') {
+            dailyBudget = budgetAmt;
+        } else if (activeBudget.period === 'weekly') {
+            dailyBudget = budgetAmt / 7;
+        } else {
+            dailyBudget = budgetAmt / daysInMonth;
+        }
+    }
+
+    const todaySpent = (Array.isArray(transactions) ? transactions : [])
+        .filter(t => {
+            if (t.type !== 'spending' || !t.date) return false;
+            const txDate = new Date(t.date);
+            return txDate >= startOfToday && txDate <= endOfToday;
+        })
+        .reduce((sum, t) => {
+            const amt = Math.abs(Number(t.amount) || 0);
+            return sum + convertCurrency(amt, t.currency || currency, currency, exchangeRates);
+        }, 0);
+
+    const remaining = dailyBudget - todaySpent;
+    const percentage = dailyBudget > 0 ? Math.min(100, Math.round((todaySpent / dailyBudget) * 100)) : 0;
+
+    return { dailyBudget, todaySpent, remaining, percentage, currency };
+}
+
+export function computeSavingsSummary(savingsGoals) {
+    const activeGoals = (Array.isArray(savingsGoals) ? savingsGoals : []).filter(g => !g.isCompleted);
+    if (activeGoals.length === 0) {
+        return { totalGoals: 0, totalSaved: 0, totalTarget: 0, nearestGoal: null };
+    }
+
+    const totalSaved = activeGoals.reduce((sum, g) => sum + (Number(g.currentAmount ?? g.savedAmount) || 0), 0);
+    const totalTarget = activeGoals.reduce((sum, g) => sum + (Number(g.targetAmount) || 0), 0);
+
+    const nearestGoal = activeGoals
+        .filter(g => (Number(g.targetAmount) || 0) > 0)
+        .sort((a, b) => {
+            const pctA = (Number(a.currentAmount ?? a.savedAmount) || 0) / a.targetAmount;
+            const pctB = (Number(b.currentAmount ?? b.savedAmount) || 0) / b.targetAmount;
+            return pctB - pctA;
+        })[0] || null;
+
+    const savedVal = nearestGoal ? (Number(nearestGoal.currentAmount ?? nearestGoal.savedAmount) || 0) : 0;
+
+    return {
+        totalGoals: activeGoals.length,
+        totalSaved,
+        totalTarget,
+        nearestGoal: nearestGoal ? {
+            name: nearestGoal.title || nearestGoal.name || 'Savings Goal',
+            savedAmount: savedVal,
+            targetAmount: Number(nearestGoal.targetAmount) || 0,
+            percentage: Math.min(100, Math.round((savedVal / nearestGoal.targetAmount) * 100)),
+        } : null,
+    };
+}
+
+export async function updateWidgetData(state) {
+    if (Platform.OS === 'web') return;
+
+    try {
+        const {
+            transactions = [],
+            budgets = [],
+            savingsGoals = [],
+            currency = 'USD',
+            exchangeRates = null,
+        } = state;
+
+        const allowance = computeDailyAllowance(transactions, budgets, currency, exchangeRates);
+        const savings = computeSavingsSummary(savingsGoals);
+
+        const widgetData = {
+            updatedAt: new Date().toISOString(),
+            currency,
+            dailyAllowance: allowance,
+            savings,
+            hasGoals: savings.totalGoals > 0,
+        };
+
+        const jsonStr = JSON.stringify(widgetData);
+
+        const { WidgetDataModule } = NativeModules;
+        if (WidgetDataModule && WidgetDataModule.updateWidgetData) {
+            await WidgetDataModule.updateWidgetData(jsonStr);
+        }
+    } catch (e) {
+        console.warn('[widgetBridge] updateWidgetData failed:', e);
+    }
+}
+
+
+================ FILE: android/app/src/main/java/com/financeflow/app/QuickActionsWidget.kt ================
+
+package com.financeflow.app
+
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.RemoteViews
+
+class QuickActionsWidget : AppWidgetProvider() {
+
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray
+    ) {
+        for (appWidgetId in appWidgetIds) {
+            updateAppWidget(context, appWidgetManager, appWidgetId)
+        }
+    }
+
+    companion object {
+        fun updateAppWidget(
+            context: Context,
+            appWidgetManager: AppWidgetManager,
+            appWidgetId: Int
+        ) {
+            val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
+
+            // Log Expense button — deep links to add-transaction
+            val expenseIntent = Intent(Intent.ACTION_VIEW).apply {
+                data = Uri.parse("financeflow://add-transaction")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val expensePending = PendingIntent.getActivity(
+                context, 1001, expenseIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.btn_log_expense, expensePending)
+
+            // Scan Receipt button
+            val receiptIntent = Intent(Intent.ACTION_VIEW).apply {
+                data = Uri.parse("financeflow://receipt-scanner")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val receiptPending = PendingIntent.getActivity(
+                context, 1002, receiptIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.btn_scan_receipt, receiptPending)
+
+            // Add Savings button
+            val savingsIntent = Intent(Intent.ACTION_VIEW).apply {
+                data = Uri.parse("financeflow://savings?action=add")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val savingsPending = PendingIntent.getActivity(
+                context, 1003, savingsIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.btn_add_savings, savingsPending)
+
+            appWidgetManager.updateAppWidget(appWidgetId, views)
+        }
+    }
+}
+
+
+================ FILE: android/app/src/main/java/com/financeflow/app/DailyAllowanceWidget.kt ================
+
+package com.financeflow.app
+
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
+import android.content.Context
+import android.widget.RemoteViews
+import org.json.JSONObject
+import java.text.NumberFormat
+import java.util.Locale
+import android.app.PendingIntent
+import android.content.Intent
+import android.net.Uri
+
+class DailyAllowanceWidget : AppWidgetProvider() {
+
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray
+    ) {
+        for (appWidgetId in appWidgetIds) {
+            updateAppWidget(context, appWidgetManager, appWidgetId)
+        }
+    }
+
+    companion object {
+        const val PREFS_NAME = "financeflow_widget"
+        const val KEY_DATA = "widget_data"
+
+        fun updateAppWidget(
+            context: Context,
+            appWidgetManager: AppWidgetManager,
+            appWidgetId: Int
+        ) {
+            val views = RemoteViews(context.packageName, R.layout.widget_daily_allowance)
+
+            // Tap anywhere to open the app
+            val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                data = Uri.parse("financeflow://")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            val openPending = PendingIntent.getActivity(
+                context, 2001, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.tv_remaining, openPending)
+
+            // Read persisted widget data
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString(KEY_DATA, null)
+
+            if (json != null) {
+                try {
+                    val data = JSONObject(json)
+                    val allowance = data.optJSONObject("dailyAllowance")
+                    val currency = data.optString("currency", "USD")
+
+                    if (allowance != null) {
+                        val remaining = allowance.optDouble("remaining", 0.0)
+                        val dailyBudget = allowance.optDouble("dailyBudget", 0.0)
+                        val todaySpent = allowance.optDouble("todaySpent", 0.0)
+                        val percentage = allowance.optInt("percentage", 0)
+
+                        val numFmt = NumberFormat.getNumberInstance(Locale.getDefault()).apply {
+                            maximumFractionDigits = if (currency in listOf("IDR", "JPY", "KRW", "VND")) 0 else 2
+                            minimumFractionDigits = 0
+                        }
+                        val currencySymbol = when (currency) {
+                            "USD" -> "$"
+                            "IDR" -> "Rp "
+                            "EUR" -> "€"
+                            "GBP" -> "£"
+                            "JPY" -> "¥"
+                            "MYR" -> "RM "
+                            "SGD" -> "S$"
+                            "AUD" -> "A$"
+                            "CAD" -> "C$"
+                            else -> "$currency "
+                        }
+
+                        val remainingStr = if (remaining >= 0)
+                            "$currencySymbol${numFmt.format(remaining)}"
+                        else
+                            "-$currencySymbol${numFmt.format(-remaining)}"
+
+                        views.setTextViewText(R.id.tv_remaining, remainingStr)
+                        views.setTextViewText(
+                            R.id.tv_status,
+                            if (remaining >= 0) "remaining today" else "over budget"
+                        )
+                        views.setProgressBar(R.id.progress_bar, 100, percentage.coerceIn(0, 100), false)
+                        views.setTextViewText(
+                            R.id.tv_spent,
+                            "Spent: $currencySymbol${numFmt.format(todaySpent)}"
+                        )
+                        views.setTextViewText(
+                            R.id.tv_budget,
+                            "Budget: $currencySymbol${numFmt.format(dailyBudget)}"
+                        )
+
+                        // Color: green if under 70%, orange if 70-100%, red if over
+                        val color = when {
+                            percentage < 70 -> android.graphics.Color.parseColor("#22C55E")
+                            percentage < 100 -> android.graphics.Color.parseColor("#FF6600")
+                            else -> android.graphics.Color.parseColor("#EF4444")
+                        }
+                        views.setTextColor(R.id.tv_remaining, color)
+                    }
+                } catch (e: Exception) {
+                    views.setTextViewText(R.id.tv_remaining, "No data")
+                }
+            } else {
+                views.setTextViewText(R.id.tv_remaining, "Open app")
+                views.setTextViewText(R.id.tv_status, "to set up budgets")
+            }
+
+            appWidgetManager.updateAppWidget(appWidgetId, views)
+        }
+    }
+}
+
+
+================ FILE: ios/FinanceFlow/WidgetDataModule.swift ================
+
+//
+//  WidgetDataModule.swift
+//  FinanceFlow
+//
+//  Native module that receives widget data from React Native
+//  and writes it to the shared App Group UserDefaults so WidgetKit
+//  widgets can read it.
+//
+
+import Foundation
+import WidgetKit
+
+@objc(WidgetDataModule)
+class WidgetDataModule: NSObject {
+
+    let APP_GROUP = "group.com.financeflow.app"
+    let WIDGET_DATA_KEY = "financeflow_widget_data"
+
+    @objc
+    func updateWidgetData(_ json: String,
+                          resolver resolve: @escaping RCTPromiseResolveBlock,
+                          rejecter reject: @escaping RCTPromiseRejectBlock) {
+        if let defaults = UserDefaults(suiteName: APP_GROUP) {
+            defaults.set(json, forKey: WIDGET_DATA_KEY)
+            defaults.synchronize()
+            // Tell WidgetKit to reload all timelines
+            if #available(iOS 14.0, *) {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+            resolve(nil)
+        } else {
+            reject("WIDGET_ERROR", "Could not access App Group UserDefaults", nil)
+        }
+    }
+
+    @objc
+    static func requiresMainQueueSetup() -> Bool { false }
+}
+
+
+================ FILE: ios/FinanceFlow/WidgetDataModule.m ================
+
+//
+//  WidgetDataModule.m
+//  FinanceFlow
+//
+
+#import <React/RCTBridgeModule.h>
+
+@interface RCT_EXTERN_MODULE(WidgetDataModule, NSObject)
+
+RCT_EXTERN_METHOD(
+  updateWidgetData:(NSString *)json
+  resolver:(RCTPromiseResolveBlock)resolve
+  rejecter:(RCTPromiseRejectBlock)reject
+)
+
+@end
+
+
+================ FILE: ios/FinanceFlowWidget/FinanceFlowWidget.swift ================
+
+//
+//  FinanceFlowWidget.swift
+//  FinanceFlowWidget
+//
+//  WidgetKit extension providing two widgets:
+//  1. Quick Actions Widget — log expense, scan receipt, add savings
+//  2. Daily Allowance Widget — glanceable budget remaining
+//
+
+import WidgetKit
+import SwiftUI
+
+// ─── Shared Data Model ────────────────────────────────────────────────────────
+
+let APP_GROUP = "group.com.financeflow.app"
+let WIDGET_DATA_KEY = "financeflow_widget_data"
+
+struct DailyAllowanceData {
+    var dailyBudget: Double = 0
+    var todaySpent: Double = 0
+    var remaining: Double = 0
+    var percentage: Int = 0
+    var currency: String = "USD"
+}
+
+struct SavingsGoalData {
+    var name: String = ""
+    var savedAmount: Double = 0
+    var targetAmount: Double = 0
+    var percentage: Int = 0
+}
+
+struct WidgetData {
+    var allowance: DailyAllowanceData = DailyAllowanceData()
+    var nearestGoal: SavingsGoalData? = nil
+    var hasGoals: Bool = false
+    var updatedAt: Date = Date()
+}
+
+func loadWidgetData() -> WidgetData {
+    guard
+        let defaults = UserDefaults(suiteName: APP_GROUP),
+        let json = defaults.string(forKey: WIDGET_DATA_KEY),
+        let data = json.data(using: .utf8),
+        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+        return WidgetData()
+    }
+
+    var wd = WidgetData()
+    wd.hasGoals = obj["hasGoals"] as? Bool ?? false
+    wd.updatedAt = Date()
+
+    if let allowanceObj = obj["dailyAllowance"] as? [String: Any] {
+        wd.allowance.dailyBudget = allowanceObj["dailyBudget"] as? Double ?? 0
+        wd.allowance.todaySpent = allowanceObj["todaySpent"] as? Double ?? 0
+        wd.allowance.remaining = allowanceObj["remaining"] as? Double ?? 0
+        wd.allowance.percentage = allowanceObj["percentage"] as? Int ?? 0
+        wd.allowance.currency = obj["currency"] as? String ?? "USD"
+    }
+
+    if let savingsObj = obj["savings"] as? [String: Any],
+       let goalObj = savingsObj["nearestGoal"] as? [String: Any] {
+        var goal = SavingsGoalData()
+        goal.name = goalObj["name"] as? String ?? "Goal"
+        goal.savedAmount = goalObj["savedAmount"] as? Double ?? 0
+        goal.targetAmount = goalObj["targetAmount"] as? Double ?? 0
+        goal.percentage = goalObj["percentage"] as? Int ?? 0
+        wd.nearestGoal = goal
+    }
+
+    return wd
+}
+
+func formatAmount(_ amount: Double, currency: String) -> String {
+    let symbol: String
+    switch currency {
+    case "USD": symbol = "$"
+    case "IDR": symbol = "Rp "
+    case "EUR": symbol = "€"
+    case "GBP": symbol = "£"
+    case "JPY": symbol = "¥"
+    case "MYR": symbol = "RM "
+    case "SGD": symbol = "S$"
+    case "AUD": symbol = "A$"
+    case "CAD": symbol = "C$"
+    default: symbol = currency + " "
+    }
+    let absVal = Swift.abs(amount)
+    let prefix = amount < 0 ? "-" : ""
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.maximumFractionDigits = (absVal >= 1000 || ["IDR", "JPY", "KRW", "VND"].contains(currency)) ? 0 : 2
+    formatter.minimumFractionDigits = 0
+    let numStr = formatter.string(from: NSNumber(value: absVal)) ?? String(format: "%.0f", absVal)
+    return "\(prefix)\(symbol)\(numStr)"
+}
+
+// ─── Quick Actions Widget ──────────────────────────────────────────────────────
+
+struct QuickActionsEntry: TimelineEntry {
+    let date: Date
+}
+
+struct QuickActionsProvider: TimelineProvider {
+    func placeholder(in context: Context) -> QuickActionsEntry {
+        QuickActionsEntry(date: Date())
+    }
+    func getSnapshot(in context: Context, completion: @escaping (QuickActionsEntry) -> Void) {
+        completion(QuickActionsEntry(date: Date()))
+    }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<QuickActionsEntry>) -> Void) {
+        let entry = QuickActionsEntry(date: Date())
+        let next = Calendar.current.date(byAdding: .hour, value: 1, to: Date())!
+        completion(Timeline(entries: [entry], policy: .after(next)))
+    }
+}
+
+struct QuickActionsWidgetView: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.05, green: 0.07, blue: 0.12), Color(red: 0.08, green: 0.05, blue: 0.15)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                // Header
+                HStack(spacing: 5) {
+                    Image(systemName: "bolt.fill")
+                        .foregroundColor(Color(red: 1, green: 0.4, blue: 0))
+                        .font(.system(size: 10, weight: .bold))
+                    Text("FinanceFlow")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.6))
+                    Spacer()
+                }
+                .padding(.bottom, 4)
+
+                // Three action buttons
+                HStack(spacing: 8) {
+                    ActionButton(
+                        systemImage: "plus.circle.fill",
+                        label: "Expense",
+                        url: "financeflow://add-transaction",
+                        color: Color(red: 1, green: 0.4, blue: 0)
+                    )
+                    ActionButton(
+                        systemImage: "camera.fill",
+                        label: "Receipt",
+                        url: "financeflow://receipt-scanner",
+                        color: Color(red: 0.13, green: 0.7, blue: 0.53)
+                    )
+                    ActionButton(
+                        systemImage: "arrow.up.circle.fill",
+                        label: "Savings",
+                        url: "financeflow://savings?action=add",
+                        color: Color(red: 0.36, green: 0.45, blue: 0.9)
+                    )
+                }
+            }
+            .padding(14)
+        }
+    }
+}
+
+struct ActionButton: View {
+    var systemImage: String
+    var label: String
+    var url: String
+    var color: Color
+
+    var body: some View {
+        Link(destination: URL(string: url)!) {
+            VStack(spacing: 5) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(color.opacity(0.15))
+                        .frame(width: 42, height: 42)
+                    Image(systemName: systemImage)
+                        .foregroundColor(color)
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                Text(label)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.white.opacity(0.75))
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+struct QuickActionsWidget: Widget {
+    let kind = "FinanceFlowQuickActions"
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: QuickActionsProvider()) { _ in
+            if #available(iOS 17.0, *) {
+                QuickActionsWidgetView()
+                    .containerBackground(for: .widget) {
+                        Color(red: 0.05, green: 0.07, blue: 0.12)
+                    }
+            } else {
+                QuickActionsWidgetView()
+            }
+        }
+        .configurationDisplayName("Quick Actions")
+        .description("One-tap log expense, scan receipt, or add savings.")
+        .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+
+// ─── Daily Allowance Widget ────────────────────────────────────────────────────
+
+struct AllowanceEntry: TimelineEntry {
+    let date: Date
+    let data: WidgetData
+}
+
+struct AllowanceProvider: TimelineProvider {
+    func placeholder(in context: Context) -> AllowanceEntry {
+        AllowanceEntry(date: Date(), data: WidgetData())
+    }
+    func getSnapshot(in context: Context, completion: @escaping (AllowanceEntry) -> Void) {
+        completion(AllowanceEntry(date: Date(), data: loadWidgetData()))
+    }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<AllowanceEntry>) -> Void) {
+        let data = loadWidgetData()
+        let entry = AllowanceEntry(date: Date(), data: data)
+        let next = Calendar.current.date(byAdding: .minute, value: 30, to: Date())!
+        completion(Timeline(entries: [entry], policy: .after(next)))
+    }
+}
+
+struct DailyAllowanceWidgetView: View {
+    var entry: AllowanceEntry
+
+    var allowance: DailyAllowanceData { entry.data.allowance }
+    var nearestGoal: SavingsGoalData? { entry.data.nearestGoal }
+
+    var barColor: Color {
+        switch allowance.percentage {
+        case ..<70:  return Color(red: 0.13, green: 0.7, blue: 0.38)
+        case ..<100: return Color(red: 1, green: 0.4, blue: 0)
+        default:     return Color(red: 0.93, green: 0.27, blue: 0.27)
+        }
+    }
+
+    var body: some View {
+        Link(destination: URL(string: "financeflow://")!) {
+            ZStack {
+                LinearGradient(
+                    colors: [Color(red: 0.05, green: 0.07, blue: 0.12), Color(red: 0.08, green: 0.05, blue: 0.15)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    // Header
+                    HStack(spacing: 4) {
+                        Image(systemName: "chart.bar.fill")
+                            .foregroundColor(Color(red: 1, green: 0.4, blue: 0))
+                            .font(.system(size: 9, weight: .bold))
+                        Text("Today's Budget")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.white.opacity(0.55))
+                        Spacer()
+                    }
+
+                    Spacer()
+
+                    // Remaining amount
+                    Text(formatAmount(allowance.remaining, currency: allowance.currency))
+                        .font(.system(size: 26, weight: .black, design: .rounded))
+                        .foregroundColor(barColor)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+
+                    Text(allowance.remaining >= 0 ? "remaining today" : "over budget")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(.bottom, 4)
+
+                    // Progress bar
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(.white.opacity(0.12))
+                                .frame(height: 5)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(barColor)
+                                .frame(width: geo.size.width * CGFloat(min(allowance.percentage, 100)) / 100.0, height: 5)
+                        }
+                    }
+                    .frame(height: 5)
+                    .padding(.bottom, 3)
+
+                    // Spent / Budget row
+                    HStack {
+                        Text("Spent: \(formatAmount(allowance.todaySpent, currency: allowance.currency))")
+                            .font(.system(size: 8, weight: .regular))
+                            .foregroundColor(.white.opacity(0.45))
+                        Spacer()
+                        Text("Budget: \(formatAmount(allowance.dailyBudget, currency: allowance.currency))")
+                            .font(.system(size: 8, weight: .regular))
+                            .foregroundColor(.white.opacity(0.45))
+                    }
+
+                    // Nearest savings goal reminder
+                    if let goal = nearestGoal {
+                        Divider().background(.white.opacity(0.1)).padding(.vertical, 3)
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .foregroundColor(Color(red: 0.36, green: 0.45, blue: 0.9))
+                                .font(.system(size: 9))
+                            Text("\(goal.name): \(goal.percentage)%")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.white.opacity(0.65))
+                                .lineLimit(1)
+                            Spacer()
+                            Text("Add savings →")
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundColor(Color(red: 0.36, green: 0.45, blue: 0.9))
+                        }
+                    }
+                }
+                .padding(12)
+            }
+        }
+    }
+}
+
+struct DailyAllowanceWidget: Widget {
+    let kind = "FinanceFlowDailyAllowance"
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: AllowanceProvider()) { entry in
+            if #available(iOS 17.0, *) {
+                DailyAllowanceWidgetView(entry: entry)
+                    .containerBackground(for: .widget) {
+                        Color(red: 0.05, green: 0.07, blue: 0.12)
+                    }
+            } else {
+                DailyAllowanceWidgetView(entry: entry)
+            }
+        }
+        .configurationDisplayName("Daily Allowance")
+        .description("Today's remaining budget at a glance.")
+        .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+
+// ─── Widget Bundle ─────────────────────────────────────────────────────────────
+
+@main
+struct FinanceFlowWidgetBundle: WidgetBundle {
+    var body: some Widget {
+        QuickActionsWidget()
+        DailyAllowanceWidget()
+    }
+}
+
+

@@ -1,0 +1,121 @@
+# =====================================================================
+# FINANCEFLOW AUDIT PART 1: Pre-Release Audit Report & Configurations & Tabs
+# Release Readiness Review: Google Play Store & Apple App Store
+# Total Code Files: 25
+# =====================================================================
+
+================================================================================
+RELEASE-READINESS AUDIT REPORT: GOOGLE PLAY STORE & APPLE APP STORE
+================================================================================
+Target Version: 2.0.0 (Build 1)
+Bundle ID / Package Name: com.financeflow.app
+Target SDK: Android API 34 (Android 14) / iOS 15.5+
+New Architecture: Enabled (Hermes engine)
+
+--------------------------------------------------------------------------------
+1. LEGAL AND STORE-POLICY ISSUES
+--------------------------------------------------------------------------------
+
+[BLOCKER - Apple App Store] Restricted Kernel Entitlements
+- Location: ios/FinanceFlow/FinanceFlow.entitlements:L5-L8, app.json:L60-L66
+- Issue: "com.apple.developer.kernel.increased-memory-limit" and 
+  "com.apple.developer.kernel.extended-virtual-addressing" are restricted capabilities.
+  Submitting without explicit Apple Developer account entitlement grant causes
+  immediate ITMS-90046 code signing rejection on App Store Connect.
+- Fix: Set "enableEntitlements: false" in app.json llama.rn config, and remove the
+  keys from FinanceFlow.entitlements unless Apple has granted formal documentation.
+
+[BLOCKER - Google Play & Apple] Missing Hosted Privacy Policy URL Link
+- Location: app/about.js:L110-L121, app/onboarding.js:L308-L310
+- Issue: Privacy Policy is only in-app text ("100% On-Device SQLite"). Both stores
+  (Apple Guideline 5.1.1(i) and Google Play User Data Policy) require a publicly
+  accessible, web-hosted URL in store metadata and linked inside the app.
+- Fix: Host privacy policy on web domain; link via Linking.openURL in about.js
+  and make "Privacy Policy" clickable in onboarding.js.
+
+[BLOCKER - Google Play Store] Suppressed Android Camera & Post-Notification Permissions
+- Location: app.json:L33-L36, android/app/src/main/AndroidManifest.xml:L2-L5
+- Issue: app.json explicitly restricts permissions to ["INTERNET", "VIBRATE"],
+  omitting CAMERA and POST_NOTIFICATIONS. On Android:
+  1. launchCameraAsync() crashes or fails permission for receipt photo taking.
+  2. Android 13+ (API 33+) local notifications fail silently.
+- Fix: Add CAMERA and POST_NOTIFICATIONS to app.json and AndroidManifest.xml.
+
+[BLOCKER - Google Play Store] Release Build Uses Debug Keystore
+- Location: android/app/build.gradle:L109-L113
+- Issue: release buildType configures "signingConfig signingConfigs.debug".
+  Google Play Console rejects AAB/APK signed with debug certificate.
+- Fix: Configure production upload keystore in gradle.properties and build.gradle.
+
+[HIGH - Apple App Store] App Group Identifier Configuration
+- Location: ios/FinanceFlow/FinanceFlow.entitlements, ios/FinanceFlowWidget/FinanceFlowWidget.entitlements
+- Issue: "group.com.financeflow.app" must be created and assigned to both App IDs
+  in Apple Developer Portal, otherwise Xcode archive validation fails.
+
+[MEDIUM - Google Play & Apple] Ephemeral Processing Disclosure
+- Location: ios/FinanceFlow/PrivacyInfo.xcprivacy:L43-L44
+- Recommendation: Declare Camera and Photo Library access in Google Play Data Safety
+  as "Ephemeral Processing Only / Not Stored on Servers / Not Shared with Third Parties".
+
+--------------------------------------------------------------------------------
+2. BUGS THAT CAN CORRUPT OR INACCURATELY ALTER DATA
+--------------------------------------------------------------------------------
+
+[CRITICAL - Verified Data Corruption] Multi-Currency Transfer Reversal Error
+- Location: app/(tabs)/transactions.js:L203-L205, app/(tabs)/index.js:L80-L82
+- Issue: When deleting a multi-currency transfer (e.g. 100 USD to 92 EUR) and choosing
+  "Yes, reverse transfer", it deducts transaction.amount (100) from the EUR account
+  instead of the converted amount (92), permanently corrupting the destination balance.
+- Fix: Convert the reversal delta into destination currency via convertCurrency().
+
+[HIGH - Recurring Schedule Drift] Monthly Recurrence Day Rollover
+- Location: utils/helpers.js:L183
+- Issue: "d.setMonth(d.getMonth() + 1)" on Jan 31 rollovers to March 3 (skipping Feb).
+  Future months permanently drift to the 3rd.
+- Fix: Clamp day to Math.min(originalDay, daysInTargetMonth).
+
+[HIGH - State Inconsistency] Stale In-Memory State on Account Deletion
+- Location: context/AppContext.js:L99-L100, services/database.js:L399-L402
+- Issue: SQLite clears assetId on transactions, but React Context reducer doesn't
+  clear assetId in memory, leaving orphaned asset references until app restarts.
+- Fix: Map state.transactions in DELETE_ASSET reducer to set assetId = null.
+
+[HIGH - Foreign Key Orphan] Transfer Transactions Ignore Account Deletion
+- Location: services/database.js:L399-L402
+- Issue: deleteAsset() updates assetId, but ignores fromAssetId and toAssetId,
+  leaving dangling account IDs in transfers.
+- Fix: Add "UPDATE transactions SET fromAssetId = NULL WHERE fromAssetId = ?" and
+  "UPDATE transactions SET toAssetId = NULL WHERE toAssetId = ?".
+
+[MEDIUM - Timezone Skew] Custom Export Date Range Excludes Local Transactions
+- Location: services/dataExport.js:L38-L39
+- Issue: new Date(start + "T00:00:00Z") forces UTC. In UTC+8 local time, transactions
+  between midnight and 8 AM on the start date are excluded.
+- Fix: Parse using local date constructors.
+
+--------------------------------------------------------------------------------
+3. POTENTIAL CRASHES & STABILITY VULNERABILITIES
+--------------------------------------------------------------------------------
+
+[HIGH - Unhandled Null] Empty Array on Document Picker / Image Picker
+- Location: app/pdf-statement-import.js:L196, app/receipt-scanner.js:L436
+- Issue: Accessing result.assets[0].name throws TypeError if assets array is empty.
+- Fix: Add guard: if (result.canceled || !result.assets?.length) return;
+
+[HIGH - Native Process Termination] Metal GPU OOM Jetsam Kill on 4GB iOS Devices
+- Location: services/localAI.js:L645-L647
+- Issue: "n_gpu_layers: 99" on older iPhones (iPhone 11/12/13 with 4GB RAM) exhausts
+  memory when loading 2B vision models, causing OS SIGKILL jetsam crash.
+- Fix: Check Device.totalMemory and throttle n_gpu_layers to 24 on <= 4GB RAM.
+
+[MEDIUM - Image Loading Failure] Percent Encoding in Native iOS CIImage Loader
+- Location: modules/ReceiptOCR/ios/ReceiptOCRModule.swift:L70-L73
+- Issue: URL(fileURLWithPath: clean) fails if path has %20 spaces.
+- Fix: Use URL(string: uri) or removingPercentEncoding.
+
+[MEDIUM - Form Input Reset] Prefill Hook Re-runs on Context Update
+- Location: app/add-transaction.js:L205-L243
+- Issue: useEffect([prefill, editId, assets]) overwrites form inputs if assets change.
+- Fix: Use prefillAppliedRef to ensure prefill applies once.
+================================================================================
+

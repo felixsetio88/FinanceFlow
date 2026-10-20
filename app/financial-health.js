@@ -163,7 +163,7 @@ export default function FinancialHealth() {
         const savingRatio = monthlyEarning > 0 ? Math.max(0, (netSavings / monthlyEarning) * 100) : 0;
 
         // Monthly Budget Total
-        const totalBudget = budgets ? budgets.reduce((sum, b) => sum + (b.amount || 0), 0) : 0;
+        const totalBudget = budgets ? budgets.reduce((sum, b) => sum + convertCurrency(b.amount || 0, b.currency || currency, currency, exchangeRates), 0) : 0;
 
         return {
             currentSavings,
@@ -172,7 +172,7 @@ export default function FinancialHealth() {
             savingRatio,
             totalBudget
         };
-    }, [transactions, assets, savingsGoals, budgets, selectedDate]);
+    }, [transactions, assets, savingsGoals, budgets, selectedDate, currency, exchangeRates]);
 
     const handleGenerateInsight = async () => {
         if (generating) return;
@@ -232,17 +232,6 @@ Data for ${monthName}:
                     if (nearScore) finalScore = parseInt(nearScore[1], 10);
                 }
 
-                // Attempt 4: Fallback to the largest number found in the text that isn't a list number (1, 2, 3)
-                if (finalScore === null) {
-                    const numbers = fullText.match(/\b(\d{1,3})\b/g);
-                    if (numbers) {
-                        const valid = numbers.map(Number).filter(n => n >= 0 && n <= 100 && n > 10);
-                        if (valid.length > 0) {
-                            finalScore = Math.max(...valid); // Assume the highest valid number is the score
-                        }
-                    }
-                }
-
                 // Extract Advice
                 if (!finalAdvice) {
                     const adviceMatch = fullText.match(/ADVICE\s*[:=|-]?\s*([\s\S]*)/i);
@@ -290,7 +279,7 @@ Data for ${monthName}:
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity
-                    onPress={() => router.back()}
+                    onPress={() => { if (router.canDismiss?.()) { router.dismiss(); } else { router.back(); } }}
                     style={[
                         styles.backBtn,
                         {
@@ -416,6 +405,9 @@ Data for ${monthName}:
                             </TouchableOpacity>
                         </View>
                     )}
+                    <Text style={{ fontSize: 11, fontFamily: 'Poppins_400Regular', color: colors.textMuted, marginTop: 12, lineHeight: 16 }}>
+                        Disclaimer: AI-generated scores and insights are for informational purposes only and do not constitute financial, investment, or tax advice.
+                    </Text>
                 </View>
 
                 <View style={{ height: 40 }} />

@@ -1,17 +1,23 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-    Platform, View, Text, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, StyleSheet, Alert, Modal, useWindowDimensions
+    Platform, View, Text, ScrollView, TouchableOpacity, KeyboardAvoidingView, StyleSheet, Alert, Modal, useWindowDimensions
 } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
-import { spendingCategories, incomeCategories, getAccountTypeById } from '../utils/categories';
-import { generateId, formatDateTime } from '../utils/helpers';
+import { spendingCategories, incomeCategories, getAccountTypeById, getCategoryById } from '../utils/categories';
+import { pickerStore } from '../utils/pickerStore';
+import { generateId, formatDateTime, getNextDueDate, findMatchingAsset } from '../utils/helpers';
 import { getTransactionRecommendations } from '../utils/recommendations';
-import { formatCurrency } from '../utils/currencies';
+import { formatCurrency, parseCurrencyAmount, roundCurrency } from '../utils/currencies';
 import { Colors, Spacing, FontSize, BorderRadius } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
+
+
+import FastInput from '../components/FastInput';
+// --------------------------------------------
+
 
 /* ─── Date/Time Picker ─── */
 function DateTimePickerModal({ visible, value, onChange, onClose, colors, isDark }) {
@@ -89,7 +95,7 @@ function ExtraCharge({ label, enabled, setEnabled, isPercent, setIsPercent, valu
                             <Text style={[s.pctTxt, { color: colors.textMuted }, isPercent && s.pctTxtOn]}>%</Text>
                         </TouchableOpacity>
                     </View>
-                    <TextInput
+                    <FastInput
                         style={[s.extraInput, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }]}
                         value={value}
                         onChangeText={setValue}
@@ -107,12 +113,15 @@ function ExtraCharge({ label, enabled, setEnabled, isPercent, setIsPercent, valu
 export default function AddTransaction() {
     const { colors, isDark } = useTheme();
     const router = useRouter();
-    const { editId, prefill } = useLocalSearchParams();
-    const { addTransaction, updateTransaction, updateAsset, assets, transactions, vehicles, currency, updateVehicle } = useApp();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-    const gridPadding = Spacing.lg * 2;
-    const totalGaps = 3 * Spacing.sm;
-    const calculatedItemWidth = (screenWidth - gridPadding - totalGaps) / 4;
+    // editId / prefill come in as query params; pickedCategory / pickedAssetId etc. are
+    // returned from the picker pages via router.setParams()
+    const params = useLocalSearchParams();
+    const editId = Array.isArray(params?.editId) ? params.editId[0] : params?.editId;
+    const prefill = Array.isArray(params?.prefill) ? params.prefill[0] : params?.prefill;
+    const { addTransaction, updateTransaction, updateAsset, assets, transactions, vehicles, currency, updateVehicle, addRecurringTransaction, exchangeRates, convertCurrency } = useApp();
+    const savingRef = useRef(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     const [type, setType] = useState('spending');
     const [amount, setAmount] = useState('');
@@ -121,9 +130,27 @@ export default function AddTransaction() {
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString());
     const [showDatePicker, setShowDatePicker] = useState(false);
 
+    const [isRecurring, setIsRecurring] = useState(false);
+    const [recurringFrequency, setRecurringFrequency] = useState('monthly');
+    const [recurringPostMode, setRecurringPostMode] = useState('auto');
+
     const [assetId, setAssetId] = useState('');
     const [fromAssetId, setFromAssetId] = useState('');
     const [toAssetId, setToAssetId] = useState('');
+
+    // Subscribe to picker results (Category, Account, From, To)
+    useEffect(() => {
+        const unsubscribe = pickerStore.subscribe((key, value) => {
+            if (key === 'category' || key === 'pickedCategory') setCategory(value);
+            if (key === 'assetId' || key === 'pickedAssetId') setAssetId(value);
+            if (key === 'fromAssetId' || key === 'pickedFromAssetId') setFromAssetId(value);
+            if (key === 'toAssetId' || key === 'pickedToAssetId') setToAssetId(value);
+
+        });
+        return unsubscribe;
+    }, []);
+
+
 
     // The effective currency for this transaction — uses the selected asset's currency, falls back to global
     const txCurrency = type === 'move'
@@ -152,7 +179,28 @@ export default function AddTransaction() {
     const [vehicleMaintenanceItems, setVehicleMaintenanceItems] = useState('');
     const [initialOdometer, setInitialOdometer] = useState('');
 
+
+
+
+
     const isEditing = !!editId;
+
+    // Helper to push to picker pages while forwarding all form inputs
+    const openPicker = useCallback((pathname, extraParams = {}) => {
+        router.push({
+            pathname,
+            params: {
+                currentAmount: amount,
+                currentDescription: description,
+                currentCategory: category,
+                currentAssetId: assetId,
+                currentFromAssetId: fromAssetId,
+                currentToAssetId: toAssetId,
+                ...(editId ? { editId } : {}),
+                ...extraParams,
+            },
+        });
+    }, [amount, description, category, assetId, fromAssetId, toAssetId, editId, router]);
 
     useEffect(() => {
         if (prefill && !editId) {
@@ -163,7 +211,21 @@ export default function AddTransaction() {
                 if (data.category) setCategory(data.category);
                 if (data.description) setDescription(data.description);
                 if (data.items && Array.isArray(data.items) && data.items.length > 0) setItems(data.items);
-                if (data.assetId) setAssetId(data.assetId);
+                const rawAsset = data.assetId || data.accountId || data.account || data.asset || data.assetName || data.payFrom;
+                if (rawAsset) {
+                    const matched = findMatchingAsset(rawAsset, assets);
+                    setAssetId(matched ? matched.id : String(rawAsset));
+                }
+                const rawFrom = data.fromAssetId || data.fromAccount || data.from;
+                if (rawFrom) {
+                    const matchedFrom = findMatchingAsset(rawFrom, assets);
+                    setFromAssetId(matchedFrom ? matchedFrom.id : String(rawFrom));
+                }
+                const rawTo = data.toAssetId || data.toAccount || data.to;
+                if (rawTo) {
+                    const matchedTo = findMatchingAsset(rawTo, assets);
+                    setToAssetId(matchedTo ? matchedTo.id : String(rawTo));
+                }
                 if (data.date) {
                     const d = new Date(data.date);
                     if (!isNaN(d.getTime())) {
@@ -178,14 +240,34 @@ export default function AddTransaction() {
                 console.error("Failed to parse prefill data", e);
             }
         }
-    }, [prefill, editId]);
+    }, [prefill, editId, assets]);
+
+    // Re-resolve account IDs if assetId was set as a name/label before assets loaded
+    useEffect(() => {
+        if (!assets || assets.length === 0) return;
+        if (assetId && !assets.some(a => a.id === assetId)) {
+            const matched = findMatchingAsset(assetId, assets);
+            if (matched) setAssetId(matched.id);
+        }
+        if (fromAssetId && !assets.some(a => a.id === fromAssetId)) {
+            const matched = findMatchingAsset(fromAssetId, assets);
+            if (matched) setFromAssetId(matched.id);
+        }
+        if (toAssetId && !assets.some(a => a.id === toAssetId)) {
+            const matched = findMatchingAsset(toAssetId, assets);
+            if (matched) setToAssetId(matched.id);
+        }
+    }, [assets, assetId, fromAssetId, toAssetId]);
 
     useEffect(() => {
         if (!editId || !transactions) return;
         const tx = transactions.find(t => t.id === editId);
         if (!tx) return;
-        setType(tx.type); setAmount(Math.abs(tx.amount).toString());
-        setCategory(tx.category || ''); setDescription(tx.description || '');
+        if (tx.type) setType(tx.type);
+        if (tx.amount != null) setAmount(String(tx.amount));
+        const loadedCat = getCategoryById(tx.category || '');
+        setCategory(loadedCat.id !== 'unknown' ? loadedCat.id : (tx.vehicleId ? 'transport' : (tx.category || '')));
+        setDescription(tx.description || '');
         setSelectedDate(tx.date); setAssetId(tx.assetId || '');
         setFromAssetId(tx.fromAssetId || ''); setToAssetId(tx.toAssetId || '');
         setItems(tx.items || []);
@@ -197,6 +279,7 @@ export default function AddTransaction() {
         setVehicleOdometer(tx.vehicleOdometer ? String(tx.vehicleOdometer) : '');
         setVehicleVolume(tx.vehicleVolume ? String(tx.vehicleVolume) : '');
         setVehicleMaintenanceItems(tx.vehicleMaintenanceItems || '');
+
     }, [editId, transactions]);
 
     const categories = type === 'spending' ? spendingCategories : incomeCategories;
@@ -225,7 +308,7 @@ export default function AddTransaction() {
         const n = parseFloat(val) || 0;
         return isPct ? (base * n) / 100 : n;
     };
-    const base = items.length > 0 ? items.reduce((s, i) => s + i.price * i.quantity, 0) : parseFloat(amount) || 0;
+    const base = items.length > 0 ? items.reduce((s, i) => s + i.price * i.quantity, 0) : parseCurrencyAmount(amount, txCurrency);
     const taxAmt = calcExtra(taxEnabled, taxIsPercent, taxValue, base);
     const feeAmt = calcExtra(serviceFeeEnabled, serviceFeeIsPercent, serviceFeeValue, base);
     const tipAmt = calcExtra(tipEnabled, tipIsPercent, tipValue, base);
@@ -242,124 +325,188 @@ export default function AddTransaction() {
     };
 
     const handleSave = async () => {
+        if (savingRef.current) return;
         if (!total || total <= 0) { Alert.alert('Error', 'Please enter an amount or add items.'); return; }
         if (!category) { Alert.alert('Error', 'Please select a category.'); return; }
-        const tx = {
-            id: isEditing ? editId : generateId(),
-            type, amount: total, category,
-            description: description || (categories.find(c => c.id === category)?.name || ''),
-            date: selectedDate, items: type === 'spending' ? items : [], photos: [],
-            paymentMethod: assetId ? 'asset' : 'cash',
-            assetId: assetId || null, fromAssetId: null, toAssetId: null,
-            tax: taxEnabled ? parseFloat(taxValue || 0) : 0, taxIsPercent, taxEnabled,
-            serviceFee: serviceFeeEnabled ? parseFloat(serviceFeeValue || 0) : 0, serviceFeeIsPercent, serviceFeeEnabled,
-            tip: tipEnabled ? parseFloat(tipValue || 0) : 0, tipIsPercent, tipEnabled,
-            vehicleId: category === 'transport' ? (vehicleId || null) : null,
-            vehicleLogType: category === 'transport' ? vehicleLogType : null,
-            vehicleOdometer: category === 'transport' ? parseFloat(vehicleOdometer || 0) : null,
-            vehicleVolume: category === 'transport' && vehicleLogType === 'refuel' ? parseFloat(vehicleVolume || 0) : null,
-            vehicleMaintenanceItems: category === 'transport' && vehicleLogType === 'maintenance' ? vehicleMaintenanceItems : null,
-            currency: txCurrency,
-        };
+        savingRef.current = true;
+        setIsSaving(true);
+        try {
+            const resolvedAsset = assetId ? (assets.find(a => a.id === assetId) || findMatchingAsset(assetId, assets)) : null;
+            const resolvedAssetId = resolvedAsset ? resolvedAsset.id : (assetId || null);
 
-        if (isEditing) {
-            const oldTx = transactions.find(t => t.id === editId);
-            if (oldTx) {
-                const oldAssetId = oldTx.assetId;
-                const newAssetId = tx.assetId;
+            const tx = {
+                id: isEditing ? editId : generateId(),
+                type, amount: total, category,
+                description: description || (categories.find(c => c.id === category)?.name || ''),
+                date: selectedDate, items: type === 'spending' ? items : [], photos: [],
+                paymentMethod: resolvedAssetId ? 'asset' : 'cash',
+                assetId: resolvedAssetId, fromAssetId: null, toAssetId: null,
+                tax: taxEnabled ? parseFloat(taxValue || 0) : 0, taxIsPercent, taxEnabled,
+                serviceFee: serviceFeeEnabled ? parseFloat(serviceFeeValue || 0) : 0, serviceFeeIsPercent, serviceFeeEnabled,
+                tip: tipEnabled ? parseFloat(tipValue || 0) : 0, tipIsPercent, tipEnabled,
+                vehicleId: category === 'transport' ? (vehicleId || null) : null,
+                vehicleLogType: category === 'transport' ? vehicleLogType : null,
+                vehicleOdometer: category === 'transport' ? parseFloat(vehicleOdometer || 0) : null,
+                vehicleVolume: category === 'transport' && vehicleLogType === 'refuel' ? parseFloat(vehicleVolume || 0) : null,
+                vehicleMaintenanceItems: category === 'transport' && vehicleLogType === 'maintenance' ? vehicleMaintenanceItems : null,
+                currency: txCurrency,
+                tags: [],
+                splits: [],
+            };
 
-                let oldAssetBalanceChange = oldTx.type === 'income' ? -oldTx.amount : oldTx.amount;
-                let newAssetBalanceChange = tx.type === 'income' ? tx.amount : -tx.amount;
+            if (isEditing) {
+                const oldTx = transactions.find(t => t.id === editId);
+                if (oldTx) {
+                    const oldAssetId = oldTx.assetId;
+                    const newAssetId = tx.assetId;
 
-                if (oldAssetId === newAssetId && oldAssetId) {
-                    const asset = assets.find(a => a.id === oldAssetId);
+                    let oldAssetBalanceChange = oldTx.type === 'income' ? -oldTx.amount : oldTx.amount;
+                    let newAssetBalanceChange = tx.type === 'income' ? tx.amount : -tx.amount;
+
+                    if (oldAssetId === newAssetId && oldAssetId) {
+                        const asset = assets.find(a => a.id === oldAssetId);
+                        if (asset) {
+                            const netChange = oldAssetBalanceChange + newAssetBalanceChange;
+                            if (netChange !== 0) {
+                                await updateAsset({ ...asset, balance: asset.balance + netChange });
+                            }
+                        }
+                    } else {
+                        if (oldAssetId) {
+                            const oldAsset = assets.find(a => a.id === oldAssetId);
+                            if (oldAsset) {
+                                await updateAsset({ ...oldAsset, balance: oldAsset.balance + oldAssetBalanceChange });
+                            }
+                        }
+                        if (newAssetId) {
+                            const newAsset = assets.find(a => a.id === newAssetId);
+                            if (newAsset) {
+                                await updateAsset({ ...newAsset, balance: newAsset.balance + newAssetBalanceChange });
+                            }
+                        }
+                    }
+                }
+                await updateTransaction(tx);
+            } else {
+                if (tx.assetId) {
+                    const asset = assets.find(a => a.id === tx.assetId);
                     if (asset) {
-                        const netChange = oldAssetBalanceChange + newAssetBalanceChange;
-                        if (netChange !== 0) {
-                            await updateAsset({ ...asset, balance: asset.balance + netChange });
-                        }
-                    }
-                } else {
-                    if (oldAssetId) {
-                        const oldAsset = assets.find(a => a.id === oldAssetId);
-                        if (oldAsset) {
-                            await updateAsset({ ...oldAsset, balance: oldAsset.balance + oldAssetBalanceChange });
-                        }
-                    }
-                    if (newAssetId) {
-                        const newAsset = assets.find(a => a.id === newAssetId);
-                        if (newAsset) {
-                            await updateAsset({ ...newAsset, balance: newAsset.balance + newAssetBalanceChange });
-                        }
+                        const balanceChange = tx.type === 'income' ? tx.amount : -tx.amount;
+                        await updateAsset({ ...asset, balance: asset.balance + balanceChange });
                     }
                 }
-            }
-            await updateTransaction(tx);
-        } else {
-            if (tx.assetId) {
-                const asset = assets.find(a => a.id === tx.assetId);
-                if (asset) {
-                    const balanceChange = tx.type === 'income' ? tx.amount : -tx.amount;
-                    await updateAsset({ ...asset, balance: asset.balance + balanceChange });
+                if (category === 'transport' && vehicleLogType === 'refuel' && vehicleId) {
+                    const selectedV = vehicles.find(v => v.id === vehicleId);
+                    if (selectedV && !selectedV.initialOdometer && initialOdometer) {
+                        await updateVehicle({ ...selectedV, initialOdometer: parseFloat(initialOdometer) });
+                    }
+                }
+                await addTransaction(tx);
+
+                if (isRecurring) {
+                    const nextDue = getNextDueDate(recurringFrequency, selectedDate);
+                    await addRecurringTransaction({
+                        templateData: tx,
+                        frequency: recurringFrequency,
+                        postMode: recurringPostMode,
+                        nextDueDate: nextDue,
+                        lastPostedDate: selectedDate,
+                        isActive: true,
+                    });
                 }
             }
-            if (category === 'transport' && vehicleLogType === 'refuel' && vehicleId) {
-                const selectedV = vehicles.find(v => v.id === vehicleId);
-                if (selectedV && !selectedV.initialOdometer && initialOdometer) {
-                    await updateVehicle({ ...selectedV, initialOdometer: parseFloat(initialOdometer) });
-                }
-            }
-            await addTransaction(tx);
+            router.back();
+        } finally {
+            savingRef.current = false;
+            setIsSaving(false);
         }
-        router.back();
     };
 
     const handleMove = async () => {
-        const amt = parseFloat(amount);
+        if (savingRef.current) return;
+        const amt = parseCurrencyAmount(amount, txCurrency);
         if (!amt || amt <= 0) { Alert.alert('Error', 'Enter a valid amount'); return; }
         if (!fromAssetId || !toAssetId) { Alert.alert('Error', 'Select both source and destination accounts'); return; }
-        if (fromAssetId === toAssetId) { Alert.alert('Error', 'Source and destination must be different'); return; }
-        const fa = assets.find(a => a.id === fromAssetId);
-        const ta = assets.find(a => a.id === toAssetId);
+        const fa = (fromAssetId && (assets.find(a => a.id === fromAssetId) || findMatchingAsset(fromAssetId, assets))) || null;
+        const ta = (toAssetId && (assets.find(a => a.id === toAssetId) || findMatchingAsset(toAssetId, assets))) || null;
         if (!fa || !ta) return;
+        const resolvedFromId = fa.id;
+        const resolvedToId = ta.id;
+        if (resolvedFromId === resolvedToId) { Alert.alert('Error', 'Source and destination must be different'); return; }
 
-        const balanceDeltas = {};
-        const addDelta = (assetId, delta) => {
-            if (!assetId) return;
-            balanceDeltas[assetId] = (balanceDeltas[assetId] || 0) + delta;
-        };
+        savingRef.current = true;
+        setIsSaving(true);
+        try {
+            const fromCur = fa.currency || currency;
+            const toCur = ta.currency || currency;
+            const convertedDestAmt = fromCur !== toCur
+                ? roundCurrency(convertCurrency(amt, fromCur, toCur, exchangeRates), toCur)
+                : amt;
 
-        if (isEditing) {
-            const oldTx = transactions.find(t => t.id === editId);
-            if (oldTx?.type === 'move') {
-                addDelta(oldTx.fromAssetId, oldTx.amount || 0);
-                addDelta(oldTx.toAssetId, -(oldTx.amount || 0));
+            const balanceDeltas = {};
+            const addDelta = (id, delta) => {
+                if (!id) return;
+                balanceDeltas[id] = (balanceDeltas[id] || 0) + delta;
+            };
+
+            if (isEditing) {
+                const oldTx = transactions.find(t => t.id === editId);
+                if (oldTx?.type === 'move') {
+                    const oldFrom = assets.find(a => a.id === oldTx.fromAssetId);
+                    const oldTo = assets.find(a => a.id === oldTx.toAssetId);
+                    const oldFromCur = oldFrom?.currency || oldTx.currency || currency;
+                    const oldToCur = oldTo?.currency || currency;
+                    const oldAmt = oldTx.amount || 0;
+                    const oldDestAmt = oldFromCur !== oldToCur
+                        ? roundCurrency(convertCurrency(oldAmt, oldFromCur, oldToCur, exchangeRates), oldToCur)
+                        : oldAmt;
+                    addDelta(oldTx.fromAssetId, oldAmt);
+                    addDelta(oldTx.toAssetId, -oldDestAmt);
+                }
             }
-        }
 
-        addDelta(fromAssetId, -amt);
-        addDelta(toAssetId, amt);
+            addDelta(resolvedFromId, -amt);
+            addDelta(resolvedToId, convertedDestAmt);
 
-        for (const [assetId, delta] of Object.entries(balanceDeltas)) {
-            if (!delta) continue;
-            const asset = assets.find(a => a.id === assetId);
-            if (asset) {
-                await updateAsset({ ...asset, balance: (asset.balance || 0) + delta });
+            for (const [id, delta] of Object.entries(balanceDeltas)) {
+                if (!delta) continue;
+                const asset = assets.find(a => a.id === id);
+                if (asset) {
+                    await updateAsset({ ...asset, balance: roundCurrency((asset.balance || 0) + delta, asset.currency || currency) });
+                }
             }
-        }
 
-        const moveTx = {
-            id: isEditing ? editId : generateId(),
-            type: 'move', amount: amt, category: 'transfer',
-            description: description || (fa.name + ' → ' + ta.name),
-            date: selectedDate, items: [], photos: [], paymentMethod: 'transfer',
-            assetId: null, fromAssetId, toAssetId,
-            tax: 0, taxIsPercent: false, taxEnabled: false,
-            serviceFee: 0, serviceFeeIsPercent: false, serviceFeeEnabled: false,
-            tip: 0, tipIsPercent: false, tipEnabled: false, currency: txCurrency,
-        };
-        if (isEditing) { await updateTransaction(moveTx); } else { await addTransaction(moveTx); }
-        router.back();
+            const moveTx = {
+                id: isEditing ? editId : generateId(),
+                type: 'move', amount: amt, category: 'transfer',
+                description: description || (fa.name + ' → ' + ta.name),
+                date: selectedDate, items: [], photos: [], paymentMethod: 'transfer',
+                assetId: null, fromAssetId: resolvedFromId, toAssetId: resolvedToId,
+                tax: 0, taxIsPercent: false, taxEnabled: false,
+                serviceFee: 0, serviceFeeIsPercent: false, serviceFeeEnabled: false,
+                tip: 0, tipIsPercent: false, tipEnabled: false, currency: fromCur,
+            };
+            if (isEditing) {
+                await updateTransaction(moveTx);
+            } else {
+                await addTransaction(moveTx);
+                if (isRecurring) {
+                    const nextDue = getNextDueDate(recurringFrequency, selectedDate);
+                    await addRecurringTransaction({
+                        templateData: moveTx,
+                        frequency: recurringFrequency,
+                        postMode: recurringPostMode,
+                        nextDueDate: nextDue,
+                        lastPostedDate: selectedDate,
+                        isActive: true,
+                    });
+                }
+            }
+            router.back();
+        } finally {
+            savingRef.current = false;
+            setIsSaving(false);
+        }
     };
 
     const TYPE_CONFIG = {
@@ -368,26 +515,32 @@ export default function AddTransaction() {
         move: { label: 'Move', icon: 'swap-horizontal', color: '#6A6FF8' },
     };
 
-    const AssetPicker = ({ label, value, onChange }) => (
-        <View>
+    // ─── Tappable selector row ───────────────────────────────────────────
+    const SelectorRow = useCallback(({ label, iconName, iconColor, primaryText, secondaryText, onPress, placeholder }) => (
+        <View style={{ marginTop: Spacing.xs }}>
             <Text style={[s.label, { color: colors.textSecondary }]}>{label}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.xs }}>
-                {assets.map(a => {
-                    const at = getAccountTypeById(a.type);
-                    const sel = value === a.id;
-                    return (
-                        <TouchableOpacity key={a.id} style={[s.assetChip, { backgroundColor: colors.inputBg, borderColor: colors.border }, sel && [s.assetChipSel, { backgroundColor: colors.primary, borderColor: colors.primary }]]} onPress={() => onChange(sel ? '' : a.id)} activeOpacity={0.8}>
-                            <Ionicons name={at.icon} size={16} color={sel ? '#fff' : colors.primary} />
-                            <View>
-                                <Text style={[s.acName, { color: colors.textPrimary }, sel && { color: '#fff' }]}>{a.name}</Text>
-                                <Text style={[s.acBal, { color: colors.textSecondary }, sel && { color: 'rgba(255,255,255,0.7)' }]}>{formatCurrency(a.balance, a.currency || currency)}</Text>
-                            </View>
-                        </TouchableOpacity>
-                    );
-                })}
-            </ScrollView>
+            <TouchableOpacity
+                style={[s.selectorRow, { backgroundColor: colors.inputBg }]}
+                onPress={onPress}
+                activeOpacity={0.8}
+            >
+                <View style={[s.selectorIcon, { backgroundColor: 'rgba(255,102,0,0.12)' }]}>
+                    <Ionicons name={iconName || 'wallet-outline'} size={20} color={iconColor || colors.primary} />
+                </View>
+                <View style={s.selectorText}>
+                    {primaryText ? (
+                        <>
+                            <Text style={[s.selectorPrimary, { color: colors.textPrimary }]}>{primaryText}</Text>
+                            {secondaryText ? <Text style={[s.selectorSecondary, { color: colors.textSecondary }]}>{secondaryText}</Text> : null}
+                        </>
+                    ) : (
+                        <Text style={[s.selectorPrimary, { color: colors.textMuted }]}>{placeholder || 'Select…'}</Text>
+                    )}
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+            </TouchableOpacity>
         </View>
-    );
+    ), [colors]);
 
     return (
         <KeyboardAvoidingView style={[s.container, { backgroundColor: colors.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -414,12 +567,19 @@ export default function AddTransaction() {
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
                 {/* Type Toggle */}
-                <View style={[s.typeToggle, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+                <View style={[s.typeToggle, { backgroundColor: colors.inputBg }]}>
                     {Object.entries(TYPE_CONFIG).map(([id, cfg]) => (
                         <TouchableOpacity
                             key={id}
                             style={[s.typeBtn, type === id && { backgroundColor: cfg.color, shadowColor: cfg.color }]}
-                            onPress={() => { setType(id); setCategory(''); }}
+                            onPress={() => {
+                                if (isEditing && (type === 'move' || id === 'move') && type !== id) {
+                                    Alert.alert('Cannot Change Type', 'Account transfers cannot be converted into income or spending. Please delete and recreate the transaction.');
+                                    return;
+                                }
+                                setType(id);
+                                setCategory('');
+                            }}
                             activeOpacity={0.8}
                         >
                             <Ionicons name={cfg.icon} size={14} color={type === id ? '#fff' : cfg.color} />
@@ -430,7 +590,7 @@ export default function AddTransaction() {
 
                 {/* Date & Time */}
                 <Text style={[s.label, { color: colors.textSecondary }]}>Date & Time</Text>
-                <TouchableOpacity style={[s.dateRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]} onPress={() => setShowDatePicker(true)} activeOpacity={0.8}>
+                <TouchableOpacity style={[s.dateRow, { backgroundColor: colors.inputBg }]} onPress={() => setShowDatePicker(true)} activeOpacity={0.8}>
                     <Ionicons name="calendar" size={18} color={colors.primary} />
                     <Text style={[s.dateTxt, { color: colors.textPrimary }]}>{formatDateTime(selectedDate)}</Text>
                     <Ionicons name="pencil" size={14} color={colors.textSecondary} />
@@ -440,11 +600,39 @@ export default function AddTransaction() {
                 {type === 'move' && (
                     <>
                         <Text style={[s.label, { color: colors.textSecondary }]}>Amount ({txCurrency})</Text>
-                        <TextInput style={[s.amtInput, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }]} placeholder="0" placeholderTextColor={colors.textMuted} value={amount} onChangeText={setAmount} keyboardType="numeric" />
+                        <FastInput style={[s.amtInput, { backgroundColor: colors.inputBg, color: colors.textPrimary }]} placeholder="0" placeholderTextColor={colors.textMuted} value={amount} onChangeText={setAmount} keyboardType="numeric" />
                         {assets.length >= 2 ? (
                             <>
-                                <AssetPicker label="From Account" value={fromAssetId} onChange={setFromAssetId} />
-                                <AssetPicker label="To Account" value={toAssetId} onChange={setToAssetId} />
+                                {(() => {
+                                    const fromAsset = fromAssetId ? (assets.find(a => a.id === fromAssetId) || findMatchingAsset(fromAssetId, assets)) : null;
+                                    const fromType = fromAsset ? getAccountTypeById(fromAsset.type) : null;
+                                    return (
+                                        <SelectorRow
+                                            label="From Account"
+                                            iconName={fromType?.icon || 'wallet-outline'}
+                                            iconColor={colors.primary}
+                                            primaryText={fromAsset?.name}
+                                            secondaryText={fromAsset ? formatCurrency(fromAsset.balance, fromAsset.currency || currency) : undefined}
+                                            placeholder="Select source account…"
+                                            onPress={() => openPicker('/pick-account', { label: 'from', currentAssetId: fromAssetId, returnKey: 'fromAssetId' })}
+                                        />
+                                    );
+                                })()}
+                                {(() => {
+                                    const toAsset = toAssetId ? (assets.find(a => a.id === toAssetId) || findMatchingAsset(toAssetId, assets)) : null;
+                                    const toType = toAsset ? getAccountTypeById(toAsset.type) : null;
+                                    return (
+                                        <SelectorRow
+                                            label="To Account"
+                                            iconName={toType?.icon || 'wallet-outline'}
+                                            iconColor={colors.primary}
+                                            primaryText={toAsset?.name}
+                                            secondaryText={toAsset ? formatCurrency(toAsset.balance, toAsset.currency || currency) : undefined}
+                                            placeholder="Select destination account…"
+                                            onPress={() => openPicker('/pick-account', { label: 'to', currentAssetId: toAssetId, returnKey: 'toAssetId' })}
+                                        />
+                                    );
+                                })()}
                             </>
                         ) : (
                             <View style={[s.infoBox, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
@@ -453,7 +641,7 @@ export default function AddTransaction() {
                             </View>
                         )}
                         <Text style={[s.label, { color: colors.textSecondary }]}>Description (Optional)</Text>
-                        <TextInput style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }]} placeholder="e.g. Bank deposit" placeholderTextColor={colors.textMuted} value={description} onChangeText={setDescription} />
+                        <FastInput style={[s.input, { backgroundColor: colors.inputBg, color: colors.textPrimary }]} placeholder="e.g. Bank deposit" placeholderTextColor={colors.textMuted} value={description} onChangeText={setDescription} />
                     </>
                 )}
 
@@ -461,7 +649,7 @@ export default function AddTransaction() {
                 {type !== 'move' && (
                     <>
                         <Text style={[s.label, { color: colors.textSecondary }]}>Amount ({txCurrency})</Text>
-                        <TextInput style={[s.amtInput, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }]} placeholder="0.00" placeholderTextColor={colors.textMuted} value={amount} onChangeText={setAmount} keyboardType="numeric" />
+                        <FastInput style={[s.amtInput, { backgroundColor: colors.inputBg, color: colors.textPrimary }]} placeholder="0.00" placeholderTextColor={colors.textMuted} value={amount} onChangeText={setAmount} keyboardType="numeric" />
 
                         {recommendations.length > 0 && (
                             <View style={s.recommendationsSect}>
@@ -488,20 +676,19 @@ export default function AddTransaction() {
                             </View>
                         )}
 
-                        <Text style={[s.label, { color: colors.textSecondary }]}>Category</Text>
-                        <View style={s.catGrid}>
-                            {categories.map(c => (
-                                <TouchableOpacity
-                                    key={c.id}
-                                    style={[s.catItem, { width: calculatedItemWidth, height: calculatedItemWidth, backgroundColor: colors.inputBg, borderColor: colors.border }, category === c.id && { borderColor: c.color, backgroundColor: isDark ? `${c.color}33` : `${c.color}12` }]}
-                                    onPress={() => setCategory(c.id)}
-                                    activeOpacity={0.8}
-                                >
-                                    <Ionicons name={c.icon} size={24} color={category === c.id ? c.color : colors.textMuted} />
-                                    <Text style={[s.catName, { color: colors.textMuted }, category === c.id && { color: c.color, fontFamily: 'Poppins_600SemiBold' }]}>{c.name}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
+                        {(() => {
+                            const selCat = category ? getCategoryById(category) : null;
+                            return (
+                                <SelectorRow
+                                    label="Category"
+                                    iconName={selCat?.icon || 'grid-outline'}
+                                    iconColor={selCat?.color || colors.primary}
+                                    primaryText={selCat?.name}
+                                    placeholder="Select a category…"
+                                    onPress={() => openPicker('/pick-category', { transactionType: type, currentCategory: category, returnKey: 'category' })}
+                                />
+                            );
+                        })()}
 
                         {category === 'transport' && vehicles && vehicles.length > 0 && (
                             <View>
@@ -547,7 +734,7 @@ export default function AddTransaction() {
                                     {vehicleId && vehicleLogType === 'refuel' && !vehicles.find(v => v.id === vehicleId)?.initialOdometer && !isEditing && (
                                         <View>
                                             <Text style={[s.label, { color: colors.textSecondary }]}>Initial Odometer — optional, enables first efficiency calc</Text>
-                                            <TextInput
+                                            <FastInput
                                                 style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary, height: 44 }]}
                                                 placeholder="e.g. 100000"
                                                 placeholderTextColor={colors.textMuted}
@@ -562,7 +749,7 @@ export default function AddTransaction() {
                                     <View style={{ flexDirection: 'row', gap: Spacing.md }}>
                                         <View style={{ flex: 1 }}>
                                             <Text style={[s.label, { color: colors.textSecondary }]}>Odometer (km)</Text>
-                                            <TextInput
+                                            <FastInput
                                                 style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary, height: 44 }]}
                                                 placeholder="e.g. 125000"
                                                 placeholderTextColor={colors.textMuted}
@@ -576,7 +763,7 @@ export default function AddTransaction() {
                                                 <Text style={[s.label, { color: colors.textSecondary }]}>
                                                     {vehicles.find(v => v.id === vehicleId)?.type === 'ev' ? 'Energy (kWh)' : 'Fuel (Liters)'}
                                                 </Text>
-                                                <TextInput
+                                                <FastInput
                                                     style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary, height: 44 }]}
                                                     placeholder="e.g. 35.5"
                                                     placeholderTextColor={colors.textMuted}
@@ -592,7 +779,7 @@ export default function AddTransaction() {
                                     {vehicleLogType === 'maintenance' && (
                                         <View>
                                             <Text style={[s.label, { color: colors.textSecondary }]}>Repaired / Replaced Items</Text>
-                                            <TextInput
+                                            <FastInput
                                                 style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary, minHeight: 60 }]}
                                                 placeholder="e.g. Oil change, new brake pads"
                                                 placeholderTextColor={colors.textMuted}
@@ -607,15 +794,25 @@ export default function AddTransaction() {
                         )}
 
                         <Text style={[s.label, { color: colors.textSecondary }]}>Description</Text>
-                        <TextInput style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }]} placeholder="What was this for?" placeholderTextColor={colors.textMuted} value={description} onChangeText={setDescription} />
+                        <FastInput style={[s.input, { backgroundColor: colors.inputBg, color: colors.textPrimary }]} placeholder="What was this for?" placeholderTextColor={colors.textMuted} value={description} onChangeText={setDescription} />
 
-                        {assets.length > 0 && (
-                            <AssetPicker
-                                label={type === 'income' ? 'Receive into Account (Optional)' : 'Pay from Account (Optional)'}
-                                value={assetId}
-                                onChange={setAssetId}
-                            />
-                        )}
+                        {assets.length > 0 && (() => {
+                            const selAsset = assetId ? (assets.find(a => a.id === assetId) || findMatchingAsset(assetId, assets)) : null;
+                            const selType = selAsset ? getAccountTypeById(selAsset.type) : null;
+                            const accLabel = type === 'income' ? 'Receive into Account (Optional)' : 'Pay from Account (Optional)';
+                            const accNavLabel = type === 'income' ? 'receive' : 'pay';
+                            return (
+                                <SelectorRow
+                                    label={accLabel}
+                                    iconName={selType?.icon || 'wallet-outline'}
+                                    iconColor={colors.primary}
+                                    primaryText={selAsset?.name}
+                                    secondaryText={selAsset ? formatCurrency(selAsset.balance, selAsset.currency || currency) : undefined}
+                                    placeholder="No account linked (cash)"
+                                    onPress={() => openPicker('/pick-account', { label: accNavLabel, currentAssetId: assetId, returnKey: 'assetId', allowClear: 'true' })}
+                                />
+                            );
+                        })()}
 
                         {type === 'spending' && (
                             <View style={s.itemsSect}>
@@ -641,9 +838,9 @@ export default function AddTransaction() {
                                     </View>
                                 ))}
                                 <View style={s.addItemRow}>
-                                    <TextInput style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }, { flex: 3 }]} placeholder="Item name" placeholderTextColor={colors.textMuted} value={itemName} onChangeText={setItemName} />
-                                    <TextInput style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }, { width: 50, textAlign: 'center' }]} placeholder="Qty" placeholderTextColor={colors.textMuted} value={itemQty} onChangeText={setItemQty} keyboardType="numeric" />
-                                    <TextInput style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }, { flex: 2 }]} placeholder="Price" placeholderTextColor={colors.textMuted} value={itemPrice} onChangeText={setItemPrice} keyboardType="numeric" />
+                                    <FastInput style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }, { flex: 3 }]} placeholder="Item name" placeholderTextColor={colors.textMuted} value={itemName} onChangeText={setItemName} />
+                                    <FastInput style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }, { width: 50, textAlign: 'center' }]} placeholder="Qty" placeholderTextColor={colors.textMuted} value={itemQty} onChangeText={setItemQty} keyboardType="numeric" />
+                                    <FastInput style={[s.input, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.textPrimary }, { flex: 2 }]} placeholder="Price" placeholderTextColor={colors.textMuted} value={itemPrice} onChangeText={setItemPrice} keyboardType="numeric" />
                                     <TouchableOpacity style={[s.addItemBtn, { backgroundColor: colors.primary }]} onPress={addItem}>
                                         <Ionicons name="add" size={18} color="#fff" />
                                     </TouchableOpacity>
@@ -654,13 +851,13 @@ export default function AddTransaction() {
                         {type === 'spending' && (
                             <View style={s.extrasSect}>
                                 <Text style={[s.label, { color: colors.textSecondary }]}>Extra Charges</Text>
-                                <View style={[s.extrasCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                                <View style={[s.extrasCard, { backgroundColor: colors.card }]}>
                                     <ExtraCharge label="Tax" enabled={taxEnabled} setEnabled={setTaxEnabled} isPercent={taxIsPercent} setIsPercent={setTaxIsPercent} value={taxValue} setValue={setTaxValue} colors={colors} />
                                     <ExtraCharge label="Service Fee" enabled={serviceFeeEnabled} setEnabled={setServiceFeeEnabled} isPercent={serviceFeeIsPercent} setIsPercent={setServiceFeeIsPercent} value={serviceFeeValue} setValue={setServiceFeeValue} colors={colors} />
                                     <ExtraCharge label="Tip" enabled={tipEnabled} setEnabled={setTipEnabled} isPercent={tipIsPercent} setIsPercent={setTipIsPercent} value={tipValue} setValue={setTipValue} colors={colors} />
                                 </View>
                                 {(taxEnabled || serviceFeeEnabled || tipEnabled) && (
-                                    <View style={[s.breakdown, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                                    <View style={[s.breakdown, { backgroundColor: colors.card }]}>
                                         <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Subtotal</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(base, txCurrency)}</Text></View>
                                         {taxEnabled && <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Tax ({taxIsPercent ? taxValue + '%' : formatCurrency(parseFloat(taxValue) || 0, txCurrency)})</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(taxAmt, txCurrency)}</Text></View>}
                                         {serviceFeeEnabled && <View style={s.brow}><Text style={[s.blbl, { color: colors.textSecondary }]}>Service Fee</Text><Text style={[s.bval, { color: colors.textPrimary }]}>{formatCurrency(feeAmt, txCurrency)}</Text></View>}
@@ -674,12 +871,103 @@ export default function AddTransaction() {
                             </View>
                         )}
 
-                        <TouchableOpacity style={[s.scanBtn, { backgroundColor: colors.inputBg, borderColor: colors.border }]} onPress={() => router.push('/receipt-scanner')} activeOpacity={0.82}>
+                        <TouchableOpacity style={[s.scanBtn, { backgroundColor: colors.inputBg }]} onPress={() => router.push('/receipt-scanner')} activeOpacity={0.82}>
                             <Ionicons name="camera" size={18} color={colors.primary} />
                             <Text style={[s.scanTxt, { color: colors.primary }]}>Scan Receipt Instead</Text>
                         </TouchableOpacity>
                     </>
                 )}
+
+                {/* Repeat / Recurring Transaction Section */}
+                {!isEditing && (
+                    <View style={s.recWrapper}>
+                        <TouchableOpacity
+                            style={[s.repeatToggleRow, { backgroundColor: colors.inputBg, borderColor: isRecurring ? colors.primary : colors.border }]}
+                            onPress={() => setIsRecurring(!isRecurring)}
+                            activeOpacity={0.8}
+                        >
+                            <View style={[s.checkbox, { borderColor: colors.border }, isRecurring && [s.checkboxOn, { backgroundColor: colors.primary, borderColor: colors.primary }]]}>
+                                {isRecurring && <Ionicons name="checkmark" size={12} color="#fff" />}
+                            </View>
+                            <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+                                <Text style={[s.repeatLabel, { color: colors.textPrimary }]}>Repeat Transaction</Text>
+                                <Text style={[s.repeatSublabel, { color: colors.textSecondary }]}>
+                                    {isRecurring
+                                        ? `Repeats ${recurringFrequency.charAt(0).toUpperCase() + recurringFrequency.slice(1)} · ${recurringPostMode === 'auto' ? 'Auto-post' : 'Confirm before posting'}`
+                                        : 'Set to repeat automatically or notify to post'}
+                                </Text>
+                            </View>
+                            <Ionicons name={isRecurring ? "repeat" : "repeat-outline"} size={20} color={isRecurring ? colors.primary : colors.textMuted} />
+                        </TouchableOpacity>
+
+                        {isRecurring && (
+                            <View style={[s.recurringOptionsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                                <Text style={[s.recSectionTitle, { color: colors.textSecondary }]}>Repeat Frequency</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.recFreqRow}>
+                                    {[
+                                        { id: 'daily', label: 'Daily' },
+                                        { id: 'weekly', label: 'Weekly' },
+                                        { id: 'biweekly', label: 'Bi-weekly' },
+                                        { id: 'monthly', label: 'Monthly' },
+                                        { id: 'yearly', label: 'Yearly' },
+                                    ].map(freq => {
+                                        const active = recurringFrequency === freq.id;
+                                        return (
+                                            <TouchableOpacity
+                                                key={freq.id}
+                                                style={[
+                                                    s.recChip,
+                                                    { backgroundColor: active ? `${colors.primary}18` : colors.inputBg, borderColor: active ? colors.primary : colors.border },
+                                                ]}
+                                                onPress={() => setRecurringFrequency(freq.id)}
+                                                activeOpacity={0.8}
+                                            >
+                                                <Text style={[s.recChipText, { color: active ? colors.primary : colors.textSecondary, fontFamily: active ? 'Poppins_700Bold' : 'Poppins_500Medium' }]}>
+                                                    {freq.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </ScrollView>
+
+                                <Text style={[s.recSectionTitle, { color: colors.textSecondary, marginTop: Spacing.md }]}>Posting Mode</Text>
+                                <View style={[s.recModeRow, { backgroundColor: colors.inputBg }]}>
+                                    <TouchableOpacity
+                                        style={[s.recModeBtn, recurringPostMode === 'auto' && [s.recModeBtnActive, { backgroundColor: colors.primary }]]}
+                                        onPress={() => setRecurringPostMode('auto')}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Ionicons name="flash" size={14} color={recurringPostMode === 'auto' ? '#fff' : colors.textSecondary} />
+                                        <Text style={[s.recModeText, { color: recurringPostMode === 'auto' ? '#fff' : colors.textSecondary }, recurringPostMode === 'auto' && s.recModeTextActive]}>
+                                            Auto-post
+                                        </Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={[s.recModeBtn, recurringPostMode === 'confirm' && [s.recModeBtnActive, { backgroundColor: colors.primary }]]}
+                                        onPress={() => setRecurringPostMode('confirm')}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Ionicons name="notifications" size={14} color={recurringPostMode === 'confirm' ? '#fff' : colors.textSecondary} />
+                                        <Text style={[s.recModeText, { color: recurringPostMode === 'confirm' ? '#fff' : colors.textSecondary }, recurringPostMode === 'confirm' && s.recModeTextActive]}>
+                                            Confirm to post
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <Text style={[s.recHintText, { color: colors.textMuted }]}>
+                                    {recurringPostMode === 'auto'
+                                        ? '⚡ Automatically posts to your transactions on each scheduled date.'
+                                        : '🔔 Sends a reminder notification on each due date asking for confirmation.'}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+                )}
+
+
+
+
 
                 <TouchableOpacity style={[s.saveBtn, { backgroundColor: colors.primary, shadowColor: colors.primary }]} onPress={type === 'move' ? handleMove : handleSave} activeOpacity={0.85}>
                     <Text style={s.saveTxt}>{isEditing ? 'Update Transaction' : type === 'move' ? 'Move Funds' : 'Save Transaction'}</Text>
@@ -723,7 +1011,6 @@ const s = StyleSheet.create({
     typeToggle: {
         flexDirection: 'row', borderRadius: BorderRadius.full,
         backgroundColor: 'rgba(255,255,255,0.75)', padding: 4, marginBottom: Spacing.lg,
-        borderWidth: 1, borderColor: 'rgba(255,102,0,0.08)',
     },
     typeBtn: {
         flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -737,28 +1024,36 @@ const s = StyleSheet.create({
         flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
         backgroundColor: 'rgba(255,255,255,0.88)', borderRadius: BorderRadius.md,
         paddingHorizontal: Spacing.md, paddingVertical: Spacing.md,
-        borderWidth: 1, borderColor: 'rgba(255,102,0,0.1)',
     },
     dateTxt: { flex: 1, fontSize: FontSize.sm, fontFamily: 'Poppins_600SemiBold', color: '#1A1040' },
     amtInput: {
         backgroundColor: 'rgba(255,255,255,0.88)', borderRadius: BorderRadius.lg,
         paddingHorizontal: Spacing.lg, paddingVertical: Spacing.lg,
         color: '#1A1040', fontSize: FontSize.xxxl, fontFamily: 'Poppins_800ExtraBold',
-        textAlign: 'center', borderWidth: 1, borderColor: 'rgba(255,102,0,0.1)',
+        textAlign: 'center',
         shadowColor: '#1A1040', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: Platform.OS === 'android' ? 0 : 1,
     },
-    catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, justifyContent: 'flex-start' },
-    catItem: {
-        justifyContent: 'center', alignItems: 'center',
-        borderRadius: BorderRadius.md, backgroundColor: 'rgba(255,255,255,0.88)',
-        borderWidth: 1.5, borderColor: 'rgba(83,96,132,0.1)', gap: 4,
+    // ─── Selector row ───────────────────────────────────────────────────
+    selectorRow: {
+        flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+        padding: Spacing.md, borderRadius: BorderRadius.lg,
+        backgroundColor: 'rgba(255,255,255,0.88)',
     },
-    catName: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', color: '#8B7CC8', textAlign: 'center' },
+    selectorIcon: {
+        width: 44, height: 44, borderRadius: BorderRadius.md,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    selectorText: { flex: 1 },
+    selectorPrimary: {
+        fontSize: FontSize.md, fontFamily: 'Poppins_600SemiBold',
+    },
+    selectorSecondary: {
+        fontSize: FontSize.sm, fontFamily: 'Poppins_400Regular', marginTop: 1,
+    },
     input: {
         backgroundColor: 'rgba(255,255,255,0.88)', borderRadius: BorderRadius.md,
         paddingHorizontal: Spacing.md, paddingVertical: Spacing.md,
         fontFamily: 'Poppins_400Regular', color: '#1A1040', fontSize: FontSize.md,
-        borderWidth: 1, borderColor: 'rgba(255,102,0,0.1)',
     },
     assetChip: {
         flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -868,7 +1163,6 @@ const s = StyleSheet.create({
         gap: Spacing.sm, marginTop: Spacing.lg,
         padding: Spacing.md, borderRadius: BorderRadius.full,
         backgroundColor: 'rgba(255,102,0,0.08)',
-        borderWidth: 1, borderColor: 'rgba(255,102,0,0.15)',
     },
     scanTxt: { fontSize: FontSize.md, fontFamily: 'Poppins_600SemiBold', color: '#ff6600' },
     saveBtn: {
@@ -878,4 +1172,40 @@ const s = StyleSheet.create({
         shadowOpacity: 0.35, shadowRadius: 12, elevation: Platform.OS === 'android' ? 0 : 6,
     },
     saveTxt: { color: '#fff', fontFamily: 'Poppins_700Bold', fontSize: FontSize.lg },
+
+    // Recurring styles
+    recWrapper: { marginTop: Spacing.md },
+    repeatToggleRow: {
+        flexDirection: 'row', alignItems: 'center', padding: Spacing.md,
+        borderRadius: BorderRadius.md, borderWidth: 1,
+    },
+    repeatLabel: { fontSize: FontSize.sm, fontFamily: 'Poppins_600SemiBold' },
+    repeatSublabel: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', marginTop: 2 },
+    recurringOptionsCard: {
+        marginTop: Spacing.sm, padding: Spacing.md, borderRadius: BorderRadius.md,
+        borderWidth: 1,
+    },
+    recSectionTitle: { fontSize: FontSize.xs, fontFamily: 'Poppins_600SemiBold', marginBottom: Spacing.xs, textTransform: 'uppercase', letterSpacing: 0.5 },
+    recFreqRow: { gap: Spacing.xs, paddingVertical: 2 },
+    recChip: {
+        paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs,
+        borderRadius: BorderRadius.full, borderWidth: 1, alignItems: 'center', justifyContent: 'center',
+    },
+    recChipText: { fontSize: FontSize.xs },
+    recModeRow: {
+        flexDirection: 'row', borderRadius: BorderRadius.md, padding: 3, gap: 4, marginTop: 2,
+    },
+    recModeBtn: {
+        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        gap: 5, paddingVertical: Spacing.sm, borderRadius: BorderRadius.sm,
+    },
+    recModeBtnActive: { shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 2 },
+    recModeText: { fontSize: FontSize.xs, fontFamily: 'Poppins_500Medium' },
+    recModeTextActive: { fontFamily: 'Poppins_700Bold' },
+    recHintText: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', marginTop: Spacing.sm, lineHeight: 16 },
+
+
+
+
 });
+

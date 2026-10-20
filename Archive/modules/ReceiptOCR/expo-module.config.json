@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["ReceiptOCRModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.receiptocr.ReceiptOCRModule"]
+  }
+}

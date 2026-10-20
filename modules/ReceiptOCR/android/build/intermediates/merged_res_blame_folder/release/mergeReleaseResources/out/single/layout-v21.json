@@ -1,0 +1,18 @@
+[
+    {
+        "merged": "expo.modules.receiptocr.ReceiptOCRModule-release-50:/layout-v21/notification_action_tombstone.xml",
+        "source": "expo.modules.receiptocr.ReceiptOCRModule-core-1.13.1-46:/layout-v21/notification_action_tombstone.xml"
+    },
+    {
+        "merged": "expo.modules.receiptocr.ReceiptOCRModule-release-50:/layout-v21/notification_template_icon_group.xml",
+        "source": "expo.modules.receiptocr.ReceiptOCRModule-core-1.13.1-46:/layout-v21/notification_template_icon_group.xml"
+    },
+    {
+        "merged": "expo.modules.receiptocr.ReceiptOCRModule-release-50:/layout-v21/notification_template_custom_big.xml",
+        "source": "expo.modules.receiptocr.ReceiptOCRModule-core-1.13.1-46:/layout-v21/notification_template_custom_big.xml"
+    },
+    {
+        "merged": "expo.modules.receiptocr.ReceiptOCRModule-release-50:/layout-v21/notification_action.xml",
+        "source": "expo.modules.receiptocr.ReceiptOCRModule-core-1.13.1-46:/layout-v21/notification_action.xml"
+    }
+]

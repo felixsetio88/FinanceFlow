@@ -11,6 +11,18 @@ import { convertCurrency } from '../../services/exchangeRates';
 import { Spacing, FontSize, BorderRadius } from '../../constants/theme';
 import { useTheme } from '../../context/ThemeContext';
 
+
+import FastInput from '../../components/FastInput';
+// --------------------------------------------
+
+
+const getOrdinal = (n) => {
+    const num = parseInt(n, 10) || 1;
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = num % 100;
+    return num + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
 export default function Budget() {
     const { colors, isDark } = useTheme();
     const router = useRouter();
@@ -18,6 +30,9 @@ export default function Budget() {
     const [showModal, setShowModal] = useState(false);
     const [editBudget, setEditBudget] = useState(null);
     const [period, setPeriod] = useState('monthly');
+    const [cycleStartDay, setCycleStartDay] = useState(1);
+    const [showDayPicker, setShowDayPicker] = useState(false);
+    const [tempCycleDay, setTempCycleDay] = useState(1);
     const [category, setCategory] = useState('all');
     const [amount, setAmount] = useState('');
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -42,6 +57,8 @@ export default function Budget() {
     const openAdd = () => {
         setEditBudget(null);
         setPeriod('monthly');
+        setCycleStartDay(1);
+        setTempCycleDay(1);
         setCategory('all');
         setAmount('');
         setShowModal(true);
@@ -50,6 +67,8 @@ export default function Budget() {
     const openEdit = (b) => {
         setEditBudget(b);
         setPeriod(b.period);
+        setCycleStartDay(b.cycleStartDay || 1);
+        setTempCycleDay(b.cycleStartDay || 1);
         setCategory(b.category || 'all');
         setAmount(b.amount.toString());
         setShowModal(true);
@@ -63,14 +82,15 @@ export default function Budget() {
         }
 
         const budgetCategory = category || 'all';
+        const startDay = period === 'monthly' ? (parseInt(cycleStartDay, 10) || 1) : 1;
         if (editBudget) {
-            await updateBudget({ ...editBudget, period, category: budgetCategory, amount: amt });
+            await updateBudget({ ...editBudget, period, category: budgetCategory, amount: amt, cycleStartDay: startDay });
         } else {
-            const existingBudget = budgets.find(b => b.period === period && (b.category || 'all') === budgetCategory);
+            const existingBudget = budgets.find(b => b.period === period && (b.category || 'all') === budgetCategory && (b.cycleStartDay || 1) === startDay);
             if (existingBudget) {
-                await updateBudget({ ...existingBudget, amount: amt });
+                await updateBudget({ ...existingBudget, amount: amt, cycleStartDay: startDay });
             } else {
-                await addBudget({ id: generateId(), period, category: budgetCategory, amount: amt });
+                await addBudget({ id: generateId(), period, category: budgetCategory, amount: amt, cycleStartDay: startDay });
             }
         }
         setShowModal(false);
@@ -134,7 +154,15 @@ export default function Budget() {
                                     <View style={styles.budgetBadges}>
                                         <View style={[styles.budgetPeriodBadge, { backgroundColor: colors.primaryLight }]}>
                                             <Text style={[styles.budgetPeriodText, { color: colors.primary }]}>
-                                                {b.period.charAt(0).toUpperCase() + b.period.slice(1)}
+                                                {(() => {
+                                                    if (b.period !== 'monthly') return b.period.charAt(0).toUpperCase() + b.period.slice(1);
+                                                    const day = b.cycleStartDay || 1;
+                                                    if (day === 1) return 'Monthly';
+                                                    const s = ['th', 'st', 'nd', 'rd'];
+                                                    const v = day % 100;
+                                                    const ord = day + (s[(v - 20) % 10] || s[v] || s[0]);
+                                                    return `Monthly · ${ord}`;
+                                                })()}
                                             </Text>
                                         </View>
                                         <View style={[styles.budgetCategoryBadge, { backgroundColor: `${budgetCategory.color}18` }]}>
@@ -211,6 +239,46 @@ export default function Budget() {
                             ))}
                         </View>
 
+                        {period === 'monthly' && (
+                            <View style={{ marginTop: Spacing.xs }}>
+                                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Cycle Start Date</Text>
+                                
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setTempCycleDay(parseInt(cycleStartDay, 10) || 1);
+                                        setShowDayPicker(true);
+                                    }}
+                                    style={[styles.dateField, { backgroundColor: colors.inputBg, borderColor: colors.border }]}
+                                    activeOpacity={0.8}
+                                >
+                                    <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                                    <Text style={[styles.dateFieldText, { color: colors.textPrimary }]}>
+                                        {(parseInt(cycleStartDay, 10) || 1) === 1
+                                            ? 'Day 1 (1st of every month · Calendar)'
+                                            : `Day ${cycleStartDay} (Every ${getOrdinal(cycleStartDay)} of the month)`}
+                                    </Text>
+                                    <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                                </TouchableOpacity>
+
+                                {/* Disclaimer / Explanation */}
+                                <View style={[styles.disclaimerBox, { backgroundColor: isDark ? 'rgba(255,102,0,0.10)' : 'rgba(255,102,0,0.06)', borderColor: `${colors.primary}33` }]}>
+                                    <Ionicons name="information-circle-outline" size={16} color={colors.primary} style={{ marginTop: 1 }} />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.disclaimerTitle, { color: colors.primary }]}>
+                                            {(parseInt(cycleStartDay, 10) || 1) === 1
+                                                ? 'Standard Calendar Month'
+                                                : `Cycle: Day ${cycleStartDay} to Day ${parseInt(cycleStartDay, 10) === 1 ? 31 : parseInt(cycleStartDay, 10) - 1}`}
+                                        </Text>
+                                        <Text style={[styles.disclaimerText, { color: colors.textSecondary }]}>
+                                            {(parseInt(cycleStartDay, 10) || 1) === 1
+                                                ? 'Budget resets on the 1st of every calendar month.'
+                                                : `Resets on day ${cycleStartDay} each month. Note: If a month has fewer days (e.g. February with 28/29 days or April/June/Sept/Nov with 30 days), the last date of that month will automatically be selected.`}
+                                        </Text>
+                                    </View>
+                                </View>
+                            </View>
+                        )}
+
                         <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Category</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryPicker}>
                             {budgetCategories.map(cat => {
@@ -233,7 +301,7 @@ export default function Budget() {
                         </ScrollView>
 
                         <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Budget Limit ({currency})</Text>
-                        <TextInput
+                        <FastInput
                             style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
                             placeholder="Enter amount"
                             placeholderTextColor={colors.textMuted}
@@ -247,6 +315,54 @@ export default function Budget() {
                             <Text style={styles.saveBtnText}>{editBudget ? 'Update Budget' : 'Create Budget'}</Text>
                         </TouchableOpacity>
                     </View>
+
+                    {/* Cycle Day Picker Overlay (in-modal overlay to prevent iOS nested Modal presentation crash) */}
+                    {showDayPicker && (
+                        <View style={[styles.dpOverlay, { backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(22,16,40,0.55)' }]}>
+                            <View style={[styles.dpBox, { backgroundColor: colors.modalBg }]}>
+                                <Text style={[styles.dpTitle, { color: colors.textPrimary }]}>Select Cycle Start Day</Text>
+                                
+                                <View style={styles.dpRow}>
+                                    <View style={styles.dpField}>
+                                        <Text style={[styles.dpFieldLabel, { color: colors.textMuted }]}>Day of Month</Text>
+                                        <TouchableOpacity onPress={() => setTempCycleDay(prev => prev >= 31 ? 1 : prev + 1)} hitSlop={{ top: 10, bottom: 10, left: 15, right: 15 }}>
+                                            <Ionicons name="chevron-up" size={28} color={colors.primary} />
+                                        </TouchableOpacity>
+                                        <Text style={[styles.dpFieldValue, { color: colors.textPrimary }]}>
+                                            {String(tempCycleDay).padStart(2, '0')}
+                                        </Text>
+                                        <TouchableOpacity onPress={() => setTempCycleDay(prev => prev <= 1 ? 31 : prev - 1)} hitSlop={{ top: 10, bottom: 10, left: 15, right: 15 }}>
+                                            <Ionicons name="chevron-down" size={28} color={colors.primary} />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                <Text style={[styles.dpHint, { color: colors.textSecondary }]}>
+                                    {tempCycleDay === 1
+                                        ? 'Resets on the 1st of every calendar month.'
+                                        : `Cycle will reset on the ${getOrdinal(tempCycleDay)} of each month.`}
+                                </Text>
+
+                                <View style={styles.dpBtnRow}>
+                                    <TouchableOpacity
+                                        onPress={() => setShowDayPicker(false)}
+                                        style={[styles.dpCancel, { backgroundColor: colors.primaryLight }]}
+                                    >
+                                        <Text style={[styles.dpCancelText, { color: colors.primary }]}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            setCycleStartDay(tempCycleDay);
+                                            setShowDayPicker(false);
+                                        }}
+                                        style={[styles.dpConfirm, { backgroundColor: colors.primary }]}
+                                    >
+                                        <Text style={styles.dpConfirmText}>Confirm</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </View>
+                    )}
                 </View>
             </Modal>
         </View>
@@ -446,4 +562,70 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     saveBtnText: { color: '#fff', fontFamily: 'Poppins_700Bold', fontSize: FontSize.lg },
+
+    // Date field in budget modal
+    dateField: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.sm,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.md,
+        marginTop: 2,
+    },
+    dateFieldText: {
+        fontSize: FontSize.sm,
+        fontFamily: 'Poppins_600SemiBold',
+        flex: 1,
+    },
+
+    // Date Picker Overlay inside modal
+    dpOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(22,16,40,0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1000,
+        elevation: 10,
+    },
+    dpBox: {
+        backgroundColor: '#fff',
+        borderRadius: BorderRadius.xl,
+        padding: Spacing.xl,
+        width: '88%',
+        maxWidth: 360,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.2,
+        shadowRadius: 16,
+        elevation: 8,
+    },
+    dpTitle: { fontSize: FontSize.lg, fontFamily: 'Poppins_700Bold', color: '#1A1040', textAlign: 'center', marginBottom: Spacing.lg },
+    dpRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: Spacing.md },
+    dpField: { alignItems: 'center', gap: 6 },
+    dpFieldLabel: { fontSize: FontSize.xs, fontFamily: 'Poppins_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5 },
+    dpFieldValue: { fontSize: FontSize.xxxl, fontFamily: 'Poppins_700Bold', minWidth: 60, textAlign: 'center' },
+    dpHint: { fontSize: FontSize.xs, fontFamily: 'Poppins_400Regular', textAlign: 'center', marginBottom: Spacing.lg },
+    dpBtnRow: { flexDirection: 'row', gap: Spacing.md },
+    dpCancel: { flex: 1, paddingVertical: Spacing.md, borderRadius: BorderRadius.full, alignItems: 'center' },
+    dpCancelText: { fontFamily: 'Poppins_700Bold', fontSize: FontSize.md },
+    dpConfirm: { flex: 1, paddingVertical: Spacing.md, borderRadius: BorderRadius.full, alignItems: 'center' },
+    dpConfirmText: { fontFamily: 'Poppins_700Bold', color: '#fff', fontSize: FontSize.md },
+
+    disclaimerBox: {
+        flexDirection: 'row',
+        gap: 8,
+        padding: Spacing.sm,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        marginTop: Spacing.sm,
+    },
+    disclaimerTitle: { fontSize: FontSize.xs, fontFamily: 'Poppins_700Bold', marginBottom: 2 },
+    disclaimerText: { fontSize: 11, fontFamily: 'Poppins_400Regular', lineHeight: 16 },
 });
+

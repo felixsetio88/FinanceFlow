@@ -2,4 +2,6 @@
   <string name="app_name">FinanceFlow</string>
   <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
   <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>
+  <string name="quick_actions_widget_description">One-tap log expense, scan receipt, or add to savings goal</string>
+  <string name="daily_allowance_widget_description">Glanceable daily budget remaining at a glance</string>
 </resources>

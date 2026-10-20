@@ -2,19 +2,42 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CACHE_KEY = 'exchangeRates';
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const FETCH_TIMEOUT_MS = 8000; // 8 seconds
 
-/**
- * Fetch fresh exchange rates from open.er-api.com and cache them.
- * Rates are relative to `baseCurrency` (e.g. 1 USD = X others).
- */
+// Approximate baseline rates relative to 1 USD for offline first-launch fallback
+// Prevents catastrophic 1:1 fallback (e.g. 1,000,000 IDR being treated as $1,000,000 USD)
+const OFFLINE_USD_BASELINE_RATES = {
+    USD: 1,
+    IDR: 16200,
+    MYR: 4.45,
+    SGD: 1.34,
+    EUR: 0.92,
+    AUD: 1.52,
+    GBP: 0.79,
+    JPY: 154,
+    CNY: 7.24,
+    THB: 34.5,
+    KRW: 1380,
+    INR: 84.0,
+    PHP: 58.0,
+    VND: 25400,
+    CAD: 1.39,
+};
+
 export async function fetchExchangeRates(baseCurrency = 'USD') {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     try {
-        const res = await fetch(`https://open.er-api.com/v6/latest/${baseCurrency}`);
+        const res = await fetch(`https://open.er-api.com/v6/latest/${baseCurrency}`, {
+            signal: controller.signal,
+        });
+        if (!res.ok) return null;
         const data = await res.json();
-        if (data.result === 'success') {
+        if (data && data.result === 'success' && data.rates) {
             const ratesData = {
                 rates: data.rates,
-                base: data.base_code,
+                base: data.base_code || baseCurrency,
                 timestamp: Date.now(),
             };
             await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(ratesData));
@@ -22,49 +45,65 @@ export async function fetchExchangeRates(baseCurrency = 'USD') {
         }
         return null;
     } catch (e) {
-        console.error('Failed to fetch exchange rates:', e);
+        console.warn('Failed to fetch exchange rates (offline or timeout):', e?.message || e);
         return null;
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 
-/**
- * Return cached rates if still fresh, otherwise fetch new ones.
- */
 export async function getOrFetchRates(baseCurrency = 'USD') {
+    let staleCache = null;
     try {
         const cached = await AsyncStorage.getItem(CACHE_KEY);
         if (cached) {
             const data = JSON.parse(cached);
-            if (data.base === baseCurrency && Date.now() - data.timestamp < CACHE_DURATION_MS) {
-                return data;
+            if (data?.rates) {
+                staleCache = data;
+                if (data.base === baseCurrency && Date.now() - data.timestamp < CACHE_DURATION_MS) {
+                    return data;
+                }
             }
         }
-        return await fetchExchangeRates(baseCurrency);
+        const fresh = await fetchExchangeRates(baseCurrency);
+        if (fresh) return fresh;
+        // If offline, return stale cache rather than null
+        if (staleCache) return staleCache;
     } catch (e) {
-        console.error('Error getting rates:', e);
-        return null;
+        console.warn('Error getting rates:', e);
+        if (staleCache) return staleCache;
     }
+    return {
+        base: 'USD',
+        rates: OFFLINE_USD_BASELINE_RATES,
+        timestamp: 0,
+        isOfflineFallback: true,
+    };
 }
 
-/**
- * Convert an amount from one currency to another using cached rates.
- *
- * The rates object has the structure: { base: 'USD', rates: { USD: 1, IDR: 16000, EUR: 0.92, ... } }
- * This means: 1 base = rates[X] of X.
- * So to convert from FROM to TO:
- *   1. Convert FROM to base: amountInBase = amount / rates[FROM]
- *   2. Convert base to TO:   result = amountInBase * rates[TO]
- */
 export function convertCurrency(amount, fromCurrency, toCurrency, exchangeRatesData) {
-    if (!amount || amount === 0) return 0;
-    if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) return amount;
-    if (!exchangeRatesData?.rates) return amount; // No rates available — return as-is
+    const num = Number(amount);
+    if (!num || !Number.isFinite(num)) return 0;
+    if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) return num;
 
-    const fromRate = exchangeRatesData.rates[fromCurrency];
-    const toRate = exchangeRatesData.rates[toCurrency];
+    let rates = exchangeRatesData?.rates || exchangeRatesData;
+    if (!rates || typeof rates !== 'object' || Object.keys(rates).length === 0) {
+        rates = OFFLINE_USD_BASELINE_RATES;
+    }
 
-    if (!fromRate || !toRate) return amount; // Unknown currency — return as-is
+    const fromRate = Number(rates[fromCurrency]);
+    const toRate = Number(rates[toCurrency]);
 
-    const amountInBase = amount / fromRate;
+    if (!fromRate || !toRate || !Number.isFinite(fromRate) || !Number.isFinite(toRate) || fromRate <= 0 || toRate <= 0) {
+        // Fall back to baseline USD rates if either rate is missing or non-positive
+        const fallbackFrom = Number(OFFLINE_USD_BASELINE_RATES[fromCurrency]);
+        const fallbackTo = Number(OFFLINE_USD_BASELINE_RATES[toCurrency]);
+        if (fallbackFrom && fallbackTo && fallbackFrom > 0 && fallbackTo > 0) {
+            return (num / fallbackFrom) * fallbackTo;
+        }
+        return num;
+    }
+
+    const amountInBase = num / fromRate;
     return amountInBase * toRate;
 }

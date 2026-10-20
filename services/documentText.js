@@ -101,17 +101,14 @@ export async function extractImageText(fileUri, options = {}) {
             ? fileUri
             : await getReadableFileUri(fileUri, 'financeflow_image_', getFileExtensionFromUri(fileUri, '.jpg'));
 
-    ensureMlKitAvailable();
-
+    const { runOCR } = require('./ocrService');
     const recognized = await Promise.race([
-        TextRecognition.recognize(readableUri),
+        runOCR(readableUri),
         new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Image text recognition timed out.')), 25000)
         ),
     ]);
-    const text = cleanText(recognized?.text || recognized);
-
-    return text;
+    return cleanText(recognized?.fullText || recognized?.text || '');
 }
 
 export function isPdfDocumentUri(uri) {

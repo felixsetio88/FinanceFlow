@@ -2,12 +2,16 @@ import React, { createContext, useContext, useReducer, useEffect, useCallback, u
 import { Alert, AppState } from 'react-native';
 import * as db from '../services/database';
 import { getOrFetchRates, fetchExchangeRates, convertCurrency } from '../services/exchangeRates';
-import { obdManager } from '../services/obdManager';
+import { updateWidgetData } from '../utils/widgetBridge';
+import { processDueRecurringTransactions } from '../services/recurringEngine';
+import { scheduleRecurringConfirmNotification } from '../services/notificationService';
+import { logActivity, logError } from '../services/appLogger';
 
 const AppContext = createContext();
 
 function reportMutationError(action, error) {
     console.error(`${action} failed:`, error);
+    logError(error, `Mutation Error: ${action}`);
     Alert.alert('Save Failed', `${action} could not be saved. Please try again.`);
 }
 
@@ -24,10 +28,11 @@ const initialState = {
     savingsGoals: [],
     chatSessions: [],
     vehicles: [],
+    recurringTransactions: [],
     currency: 'USD',
     exchangeRates: null,
     aiApiKey: '',
-    aiEndpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    aiEndpoint: '',
     onboardingCompleted: false,
     loading: true,
 };
@@ -50,6 +55,7 @@ function reducer(state, action) {
                 savingsGoals: action.payload.savingsGoals || [],
                 chatSessions: action.payload.chatSessions || [],
                 vehicles: action.payload.vehicles || [],
+                recurringTransactions: action.payload.recurringTransactions || [],
                 currency: action.payload.settings?.currency || 'USD',
                 aiApiKey: action.payload.settings?.aiApiKey || '',
                 aiEndpoint: action.payload.settings?.aiEndpoint || state.aiEndpoint,
@@ -131,6 +137,17 @@ function reducer(state, action) {
                 ...state,
                 vehicles: state.vehicles.map(v => ({ ...v, isDefault: v.id === action.payload ? 1 : 0 }))
             };
+        case 'ADD_RECURRING':
+            return { ...state, recurringTransactions: [action.payload, ...state.recurringTransactions] };
+        case 'UPDATE_RECURRING':
+            return {
+                ...state,
+                recurringTransactions: state.recurringTransactions.map(r =>
+                    r.id === action.payload.id ? action.payload : r
+                ),
+            };
+        case 'DELETE_RECURRING':
+            return { ...state, recurringTransactions: state.recurringTransactions.filter(r => r.id !== action.payload) };
         default:
             return state;
     }
@@ -142,7 +159,6 @@ export function AppProvider({ children }) {
 
     useEffect(() => {
         loadData();
-        obdManager.init();
     }, []);
 
     useEffect(() => {
@@ -175,6 +191,9 @@ export function AppProvider({ children }) {
             if (nextState === 'active') {
                 setCurrentDateKey(getLocalDateKey(new Date()));
                 scheduleMidnightTick();
+                // Process any recurring transactions that became due while app was in background
+                // We read state via a ref-like pattern — just fire-and-forget here;
+                // the callbacks use the latest dispatch via closure.
             }
         });
 
@@ -195,9 +214,34 @@ export function AppProvider({ children }) {
             getOrFetchRates(curr).then(rates => {
                 if (rates) dispatch({ type: 'SET_RATES', payload: rates });
             });
+            // Sync widget data on fresh load
+            updateWidgetData({
+                transactions: data.transactions || [],
+                budgets: data.budgets || [],
+                savingsGoals: data.savingsGoals || [],
+                currency: data.settings?.currency || 'USD',
+            });
         } catch (e) {
             console.error('Failed to load data:', e);
-            dispatch({ type: 'LOAD_DATA', payload: { transactions: [], budgets: [], assets: [], settings: {} } });
+            // On load error, preserve existing state and never reset onboarding status or currency
+            dispatch({
+                type: 'LOAD_DATA',
+                payload: {
+                    transactions: state.transactions || [],
+                    budgets: state.budgets || [],
+                    assets: state.assets || [],
+                    savingsGoals: state.savingsGoals || [],
+                    chatSessions: state.chatSessions || [],
+                    vehicles: state.vehicles || [],
+                    recurringTransactions: state.recurringTransactions || [],
+                    settings: {
+                        currency: state.currency || 'USD',
+                        aiApiKey: state.aiApiKey || '',
+                        aiEndpoint: state.aiEndpoint || '',
+                        onboardingCompleted: true, // Never force onboarding on load error
+                    },
+                },
+            });
         }
     };
 
@@ -205,8 +249,14 @@ export function AppProvider({ children }) {
         try {
             const txCurrency = tx.currency || state.currency;
             const id = await db.addTransaction({ ...tx, currency: txCurrency });
-            const fullTx = { ...tx, id, currency: txCurrency, items: tx.items || [], photos: tx.photos || [] };
+            const fullTx = { ...tx, id, currency: txCurrency, items: tx.items || [], photos: tx.photos || [], tags: tx.tags || [], splits: tx.splits || [] };
             dispatch({ type: 'ADD_TRANSACTION', payload: fullTx });
+            logActivity({
+                category: 'transaction',
+                level: 'success',
+                title: 'Transaction Added',
+                details: `${(fullTx.type || 'spending').toUpperCase()}: ${fullTx.amount} ${fullTx.currency} • ${fullTx.category || 'General'}${fullTx.description ? ' • ' + fullTx.description : ''}`,
+            });
             return id;
         } catch (error) {
             reportMutationError('Add transaction', error);
@@ -218,16 +268,28 @@ export function AppProvider({ children }) {
         try {
             await db.updateTransaction(tx);
             dispatch({ type: 'UPDATE_TRANSACTION', payload: tx });
+            logActivity({
+                category: 'transaction',
+                level: 'info',
+                title: 'Transaction Updated',
+                details: `${(tx.type || 'spending').toUpperCase()}: ${tx.amount} ${tx.currency || state.currency} • ${tx.category || 'General'}${tx.description ? ' • ' + tx.description : ''}`,
+            });
         } catch (error) {
             reportMutationError('Update transaction', error);
             throw error;
         }
-    }, []);
+    }, [state.currency]);
 
     const deleteTransaction = useCallback(async (id) => {
         try {
             await db.deleteTransaction(id);
             dispatch({ type: 'DELETE_TRANSACTION', payload: id });
+            logActivity({
+                category: 'transaction',
+                level: 'warn',
+                title: 'Transaction Deleted',
+                details: `Transaction ID: ${id}`,
+            });
         } catch (error) {
             reportMutationError('Delete transaction', error);
             throw error;
@@ -270,6 +332,12 @@ export function AppProvider({ children }) {
         try {
             const id = await db.addAsset({ ...a, currency: a.currency || state.currency });
             dispatch({ type: 'ADD_ASSET', payload: { ...a, id, currency: a.currency || state.currency } });
+            logActivity({
+                category: 'asset',
+                level: 'success',
+                title: 'Account Added',
+                details: `${a.name} (${a.type}) • Initial: ${a.balance} ${a.currency || state.currency}`,
+            });
             return id;
         } catch (error) {
             reportMutationError('Add asset', error);
@@ -281,16 +349,28 @@ export function AppProvider({ children }) {
         try {
             await db.updateAsset(a);
             dispatch({ type: 'UPDATE_ASSET', payload: a });
+            logActivity({
+                category: 'asset',
+                level: 'info',
+                title: 'Account Updated',
+                details: `${a.name} • Balance: ${a.balance} ${a.currency || state.currency}`,
+            });
         } catch (error) {
             reportMutationError('Update asset', error);
             throw error;
         }
-    }, []);
+    }, [state.currency]);
 
     const deleteAsset = useCallback(async (id) => {
         try {
             await db.deleteAsset(id);
             dispatch({ type: 'DELETE_ASSET', payload: id });
+            logActivity({
+                category: 'asset',
+                level: 'warn',
+                title: 'Account Deleted',
+                details: `Account ID: ${id}`,
+            });
         } catch (error) {
             reportMutationError('Delete asset', error);
             throw error;
@@ -301,6 +381,12 @@ export function AppProvider({ children }) {
         try {
             await db.setSetting('currency', code);
             dispatch({ type: 'SET_CURRENCY', payload: code });
+            logActivity({
+                category: 'currency',
+                level: 'info',
+                title: 'Base Currency Changed',
+                details: `Primary currency set to ${code}`,
+            });
             // Refresh rates for the new base currency
             getOrFetchRates(code).then(rates => {
                 if (rates) dispatch({ type: 'SET_RATES', payload: rates });
@@ -472,18 +558,83 @@ export function AppProvider({ children }) {
         }
     }, []);
 
-    // Computed values
+    // ─── Recurring Transactions ───────────────────────────────
+    const addRecurringTransaction = useCallback(async (rt) => {
+        try {
+            const id = await db.addRecurringTransaction(rt);
+            const full = { ...rt, id, createdAt: new Date().toISOString() };
+            dispatch({ type: 'ADD_RECURRING', payload: full });
+            return id;
+        } catch (error) {
+            reportMutationError('Add recurring transaction', error);
+            throw error;
+        }
+    }, []);
+
+    const updateRecurringTransaction = useCallback(async (rt) => {
+        try {
+            await db.updateRecurringTransaction(rt);
+            dispatch({ type: 'UPDATE_RECURRING', payload: rt });
+        } catch (error) {
+            reportMutationError('Update recurring transaction', error);
+            throw error;
+        }
+    }, []);
+
+    const deleteRecurringTransaction = useCallback(async (id) => {
+        try {
+            await db.deleteRecurringTransaction(id);
+            dispatch({ type: 'DELETE_RECURRING', payload: id });
+        } catch (error) {
+            reportMutationError('Delete recurring transaction', error);
+            throw error;
+        }
+    }, []);
+
+    // Computed values (multi-currency aware)
     const getIncome = useCallback((period, ref) => {
         const { filterTransactionsByPeriod } = require('../utils/helpers');
         const filtered = filterTransactionsByPeriod(state.transactions, period, ref);
-        return filtered.filter(t => t.type === 'income').reduce((s, t) => s + Math.abs(t.amount), 0);
-    }, [state.transactions]);
+        return filtered
+            .filter(t => t.type === 'income')
+            .reduce((s, t) => s + Math.abs(convertCurrency(t.amount, t.currency || state.currency, state.currency, state.exchangeRates)), 0);
+    }, [state.transactions, state.currency, state.exchangeRates]);
 
     const getSpending = useCallback((period, ref) => {
         const { filterTransactionsByPeriod } = require('../utils/helpers');
         const filtered = filterTransactionsByPeriod(state.transactions, period, ref);
-        return filtered.filter(t => t.type === 'spending').reduce((s, t) => s + Math.abs(t.amount), 0);
-    }, [state.transactions]);
+        return filtered
+            .filter(t => t.type === 'spending')
+            .reduce((s, t) => s + Math.abs(convertCurrency(t.amount, t.currency || state.currency, state.currency, state.exchangeRates)), 0);
+    }, [state.transactions, state.currency, state.exchangeRates]);
+
+    // Keep widget data in sync whenever key state slices change
+    useEffect(() => {
+        if (!state.loading) {
+            updateWidgetData({
+                transactions: state.transactions,
+                budgets: state.budgets,
+                savingsGoals: state.savingsGoals,
+                currency: state.currency,
+                exchangeRates: state.exchangeRates,
+            });
+        }
+    }, [state.transactions, state.budgets, state.savingsGoals, state.currency, state.exchangeRates, state.loading]);
+
+    // Process due recurring transactions
+    useEffect(() => {
+        if (state.loading || !state.recurringTransactions?.length) return;
+        processDueRecurringTransactions(
+            addTransaction,
+            state.recurringTransactions,
+            updateRecurringTransaction,
+            scheduleRecurringConfirmNotification,
+            state.assets,
+            updateAsset,
+            state.exchangeRates,
+            state.currency
+        );
+    }, [state.recurringTransactions, state.loading, currentDateKey]);
 
     const value = {
         ...state,
@@ -516,6 +667,9 @@ export function AppProvider({ children }) {
         updateVehicle,
         deleteVehicle,
         setDefaultVehicle,
+        addRecurringTransaction,
+        updateRecurringTransaction,
+        deleteRecurringTransaction,
     };
 
     return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
